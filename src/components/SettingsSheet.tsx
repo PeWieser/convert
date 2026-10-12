@@ -1,0 +1,104 @@
+import { useState } from "react";
+import type { HardwareInfo, Settings } from "../lib/types";
+import { Btn, Group, Row, Select, Sheet, Switch, TextField } from "./ui";
+
+export function SettingsSheet({
+  settings,
+  hardware,
+  onChange,
+  onClose,
+  onForgetFolders,
+  onResetPresets,
+}: {
+  settings: Settings;
+  hardware: HardwareInfo;
+  onChange: (patch: Partial<Settings>) => void;
+  onClose: () => void;
+  onForgetFolders: () => void;
+  onResetPresets: () => void;
+}) {
+  const [confirmReset, setConfirmReset] = useState(false);
+  const [forgotten, setForgotten] = useState(false);
+
+  return (
+    <Sheet title="Einstellungen" onClose={onClose} width={480}>
+      <header className="flex items-center justify-between px-6 pb-2 pt-5">
+        <h2 className="text-[20px] font-semibold tracking-tight">Einstellungen</h2>
+        <Btn variant="primary" onClick={onClose}>
+          Fertig
+        </Btn>
+      </header>
+
+      <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6 pt-3">
+        <Group>
+          <Row label="Grafikkarte verwenden" sub={hardware.available ? `${hardware.gpu} · ${hardware.encoder}` : "Keine Grafikkarte gefunden"}>
+            <Switch
+              disabled={!hardware.available}
+              checked={settings.hardware === "auto" && hardware.available}
+              onChange={(on) => onChange({ hardware: on ? "auto" : "off" })}
+            />
+          </Row>
+        </Group>
+
+        <Group>
+          <Row label="Ordnername">
+            <TextField
+              value={settings.outFolderName}
+              placeholder="Konvertiert"
+              onChange={(v) => onChange({ outFolderName: v.replace(/[\\/:*?"<>|]/g, "") })}
+            />
+          </Row>
+          <Row label="Wenn Datei existiert">
+            <Select
+              value={settings.collision}
+              onChange={(c) => onChange({ collision: c })}
+              options={[
+                { value: "number", label: "Beide behalten" },
+                { value: "overwrite", label: "Ersetzen" },
+                { value: "skip", label: "Überspringen" },
+              ]}
+            />
+          </Row>
+        </Group>
+
+        <Group>
+          <Row label="Gemerkte Ordner">
+            <Btn
+              variant="plain"
+              disabled={forgotten}
+              onClick={() => {
+                onForgetFolders();
+                setForgotten(true);
+              }}
+            >
+              {forgotten ? "Vergessen" : "Vergessen …"}
+            </Btn>
+          </Row>
+          <Row label="Presets">
+            {confirmReset ? (
+              <div className="anim-fade flex items-center gap-1">
+                <Btn variant="ghost" onClick={() => setConfirmReset(false)}>
+                  Abbrechen
+                </Btn>
+                <Btn
+                  variant="primary"
+                  className="!bg-bad"
+                  onClick={() => {
+                    onResetPresets();
+                    setConfirmReset(false);
+                  }}
+                >
+                  Zurücksetzen
+                </Btn>
+              </div>
+            ) : (
+              <Btn variant="danger" onClick={() => setConfirmReset(true)}>
+                Zurücksetzen …
+              </Btn>
+            )}
+          </Row>
+        </Group>
+      </div>
+    </Sheet>
+  );
+}

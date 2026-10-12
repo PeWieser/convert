@@ -1,0 +1,153 @@
+// Gemeinsame Typen der App. Die UI kennt nur diese Typen – nie die Engine-Details.
+
+export type ContainerId = "mp4" | "mov" | "mkv" | "webm" | "ts" | "mp3" | "aac" | "flac" | "wav" | "ogg";
+export type VideoCodecId = "h264" | "h265" | "vp9" | "av1" | "vp8" | "copy" | "none";
+export type AudioCodecId = "aac" | "mp3" | "opus" | "vorbis" | "flac" | "pcm" | "copy" | "none";
+export type RateControl = "quality" | "vbr" | "cbr";
+export type Scaling = "fit" | "pad" | "crop" | "stretch";
+export type PresetIcon = "smartphone" | "film" | "tv" | "music" | "globe" | "clapperboard" | "laptop" | "sparkles";
+
+export interface VideoSettings {
+  codec: VideoCodecId;
+  profile: "auto" | "baseline" | "main" | "high";
+  /** "auto" oder z. B. "3.0", "4.1" */
+  level: string;
+  rateControl: RateControl;
+  /** 0–100 (nur bei rateControl = quality) */
+  quality: number;
+  /** kbit/s (bei vbr / cbr) */
+  bitrate: number;
+  /** kbit/s, 0 = unbegrenzt */
+  maxBitrate: number;
+  /** 0 = unbegrenzt */
+  maxWidth: number;
+  /** 0 = unbegrenzt */
+  maxHeight: number;
+  scaling: Scaling;
+  /** Maximale Bildrate, 0 = Original */
+  fps: number;
+  /** Sekunden zwischen Keyframes */
+  keyframeInterval: number;
+  bframes: number;
+  refs: number;
+  entropy: "cabac" | "cavlc";
+  twoPass: boolean;
+  deinterlace: boolean;
+  rotate: 0 | 90 | 180 | 270;
+  tenBit: boolean;
+  hdrToSdr: boolean;
+  speed: "fast" | "balanced" | "slow";
+}
+
+export interface AudioSettings {
+  codec: AudioCodecId;
+  /** kbit/s */
+  bitrate: number;
+  /** Hz, 0 = Original */
+  sampleRate: number;
+  /** 0 = Original */
+  channels: 0 | 1 | 2 | 6;
+  normalize: boolean;
+}
+
+export interface Preset {
+  id: string;
+  name: string;
+  icon: PresetIcon;
+  builtin?: "ipod" | "mp4";
+  container: ContainerId;
+  video: VideoSettings;
+  audio: AudioSettings;
+  subtitles: "keep" | "burn" | "none";
+  metadata: "keep" | "strip";
+  fastStart: boolean;
+}
+
+export interface Settings {
+  hardware: "auto" | "off";
+  outFolderName: string;
+  collision: "number" | "overwrite" | "skip";
+  concurrency: number;
+  appearance: "auto" | "light" | "dark";
+  destination: "auto" | "custom";
+  customDestinationName: string;
+  selectedPresetId: string;
+}
+
+/** Quelle einer Datei inklusive ihrer Herkunft (für das smarte Ziel). */
+export interface SourceFile {
+  id: string;
+  file: File;
+  name: string;
+  handle?: FileSystemFileHandle;
+  /** Oberster hinzugefügter Ordner, falls die Datei aus einem Ordner stammt. */
+  root?: FileSystemDirectoryHandle;
+  /** Unterordner relativ zu `root` */
+  relDirs: string[];
+}
+
+export interface VideoInfo {
+  codec: string;
+  width: number;
+  height: number;
+  fps: number;
+  bitrate: number;
+  rotation: number;
+  hdr: boolean;
+}
+export interface AudioInfo {
+  codec: string;
+  channels: number;
+  sampleRate: number;
+  bitrate: number;
+}
+export interface MediaInfo {
+  format: string;
+  duration: number;
+  size: number;
+  video?: VideoInfo;
+  audio?: AudioInfo;
+}
+
+export type Health =
+  | { state: "ok" }
+  | { state: "repair"; note: string }
+  | { state: "broken"; reason: string };
+
+export type ItemStatus = "checking" | "ready" | "queued" | "converting" | "done" | "failed";
+
+export interface Item {
+  id: string;
+  source: SourceFile;
+  status: ItemStatus;
+  info?: MediaInfo;
+  health: Health;
+  thumb?: string;
+  /** 0–1 */
+  progress: number;
+  /** Wurde in einem Durchlauf bearbeitet */
+  attempted?: boolean;
+  /** Fehlertext (failed) oder Reparaturhinweis (done) */
+  message?: string;
+  repaired?: boolean;
+  /** Fehler lässt sich nicht durch erneutes Versuchen beheben */
+  final?: boolean;
+  outSize?: number;
+  outPlace?: string;
+  etaSeconds?: number;
+}
+
+export interface HardwareInfo {
+  /** Anzeigename der Grafikkarte */
+  gpu: string;
+  vendor: "nvidia" | "amd" | "intel" | "apple" | "other" | "none";
+  /** Name der Encoder-Technik, z. B. NVENC */
+  encoder: string;
+  available: boolean;
+}
+
+export interface Capabilities {
+  video: VideoCodecId[];
+  audio: AudioCodecId[];
+  ready: boolean;
+}

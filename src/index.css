@@ -1,0 +1,305 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ────────────────────────────────────────────────────────────
+   Wandler – Designsystem (Apple Human Interface Guidelines)
+   ──────────────────────────────────────────────────────────── */
+
+:root {
+  color-scheme: light;
+  --canvas: #f5f5f7;
+  --surface: #ffffff;
+  --fill: rgba(118, 118, 128, 0.12);
+  --fill-2: rgba(118, 118, 128, 0.2);
+  --label: #1d1d1f;
+  --label-2: rgba(60, 60, 67, 0.78);
+  --label-3: rgba(60, 60, 67, 0.55);
+  --sep: rgba(60, 60, 67, 0.14);
+  --accent: #0070e0;
+  --accent-fill: #0070e0;
+  --accent-press: #005bb5;
+  --green: #1f9d44;
+  --orange: #b25e00;
+  --red: #d12d28;
+  --glass: rgba(245, 245, 247, 0.74);
+  --overlay: rgba(0, 0, 0, 0.28);
+  --sh-card: 0 0 0 0.5px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.04), 0 8px 24px rgba(0, 0, 0, 0.05);
+  --sh-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.08), 0 10px 40px rgba(0, 0, 0, 0.18);
+}
+
+:root.dark {
+  color-scheme: dark;
+  --canvas: #101012;
+  --surface: #1c1c1e;
+  --fill: rgba(118, 118, 128, 0.24);
+  --fill-2: rgba(118, 118, 128, 0.36);
+  --label: #f5f5f7;
+  --label-2: rgba(235, 235, 245, 0.72);
+  --label-3: rgba(235, 235, 245, 0.5);
+  --sep: rgba(84, 84, 88, 0.6);
+  --accent: #4a9eff;
+  --accent-fill: #1a6fd4;
+  --accent-press: #4a9eff;
+  --green: #30d158;
+  --orange: #ff9f0a;
+  --red: #ff453a;
+  --glass: rgba(24, 24, 26, 0.74);
+  --overlay: rgba(0, 0, 0, 0.55);
+  --sh-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06), 0 8px 24px rgba(0, 0, 0, 0.35);
+  --sh-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 10px 40px rgba(0, 0, 0, 0.6);
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text",
+    "Segoe UI Variable", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", SFMono-Regular, "Cascadia Mono", Consolas, Menlo, monospace;
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-fill: var(--fill);
+  --color-fill2: var(--fill-2);
+  --color-label: var(--label);
+  --color-label2: var(--label-2);
+  --color-label3: var(--label-3);
+  --color-sep: var(--sep);
+  --color-accent: var(--accent);
+  --color-glass: var(--glass);
+  --color-ok: var(--green);
+  --color-warn: var(--orange);
+  --color-bad: var(--red);
+  --shadow-card: var(--sh-card);
+  --shadow-pop: var(--sh-pop);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Segoe UI Variable Text",
+    "Segoe UI Variable", "Segoe UI", system-ui, "Helvetica Neue", Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.35;
+  letter-spacing: -0.006em;
+  background: var(--canvas);
+  color: var(--label);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  user-select: none;
+  -webkit-user-select: none;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+button {
+  cursor: default;
+  font: inherit;
+  color: inherit;
+}
+button:disabled {
+  cursor: default;
+}
+input,
+select {
+  font: inherit;
+  color: inherit;
+  user-select: text;
+  -webkit-user-select: text;
+}
+input:focus,
+select:focus,
+button:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 8px;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbars – schmal, wie bei macOS */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--fill-2) transparent;
+}
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--fill-2);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Material */
+.glass {
+  background: var(--glass);
+  -webkit-backdrop-filter: saturate(180%) blur(28px);
+  backdrop-filter: saturate(180%) blur(28px);
+}
+
+/* Slider (iOS-Optik) */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+  margin: 0;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(to right, var(--accent) var(--p, 0%), var(--fill-2) var(--p, 0%));
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -11px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.28);
+  transition: transform 0.15s ease;
+}
+.slider:active::-webkit-slider-thumb {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 4px 14px rgba(0, 0, 0, 0.28);
+}
+.slider {
+  cursor: default;
+}
+.slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--fill-2);
+}
+.slider::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+.slider::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+/* Animationen */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes row-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@keyframes breathe {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes sweep {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.anim-fade {
+  animation: fade-in 0.25s ease both;
+}
+.anim-sheet {
+  animation: sheet-in 0.42s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.anim-pop {
+  animation: pop-in 0.22s cubic-bezier(0.32, 0.72, 0, 1) both;
+  transform-origin: bottom left;
+}
+.anim-row {
+  animation: row-in 0.35s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+.anim-breathe {
+  animation: breathe 1.4s ease-in-out infinite;
+}
+.anim-spin {
+  animation: spin 0.9s linear infinite;
+}
+.shimmer {
+  background-image: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.35) 50%, transparent 70%);
+  background-size: 200% 100%;
+  animation: sweep 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
