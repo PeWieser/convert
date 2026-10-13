@@ -10,7 +10,7 @@
  *   npm test
  */
 import { buildFfmpegCommand } from "../src/lib/ffmpeg";
-import { clampCrop, estimateOutputBytes, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
+import { clampCrop, estimateOutputBytes, fastStartMode, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
 import { moveTo, slotShift } from "../src/lib/order";
 import { defaultPresets } from "../src/lib/presets";
 import { chooseName } from "../src/lib/platform";
@@ -172,6 +172,17 @@ eq("moveTo nach vorn", moveTo(["a", "b", "c", "d"], 3, 1), ["a", "d", "b", "c"])
 eq("moveTo ganz nach vorn", moveTo(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
 eq("moveTo klemmt ans Ende", moveTo(["a", "b", "c"], 0, 99), ["b", "c", "a"]);
 eq("moveTo mit fremder Stelle ändert nichts", moveTo(["a", "b"], 7, 0), ["a", "b"]);
+
+/* ── Schnellstart: welcher Weg bei welcher Größe ── */
+
+group("Schnellstart");
+/* „in-memory" hält die fertige Datei im Arbeitsspeicher. Zwei große Läufe
+   gleichzeitig und der Tab stirbt – ohne Meldung und ohne Datei im Zielordner. */
+eq("kleine Datei geht ganz in den Speicher", fastStartMode(50_000_000, 8), "in-memory");
+eq("große Datei wird fragmentiert", fastStartMode(500_000_000, 8), "fragmented");
+eq("wenig Arbeitsspeicher senkt die Grenze", fastStartMode(200_000_000, 4), "fragmented");
+eq("unter der kleinen Grenze bleibt es im Speicher", fastStartMode(100_000_000, 4), "in-memory");
+eq("ohne Angabe gilt der vorsichtige Wert", fastStartMode(400_000_000), "fragmented");
 
 /* ── Namensvergabe an der Plattform-Naht ── */
 

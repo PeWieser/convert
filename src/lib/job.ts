@@ -181,3 +181,16 @@ export function estimateOutputBytes(preset: Preset, info: MediaInfo, adj: Adjust
   }
   return (bps * dur) / 8;
 }
+
+/**
+ * Schnellstart schreibt die Metadaten nach vorn – dafür gibt es zwei Wege.
+ * "in-memory" hält die ganze fertige Datei bis zum Abschluss im Arbeitsspeicher;
+ * laufen zwei große Dateien gleichzeitig, stirbt der Tab: keine Meldung, keine
+ * Datei im Zielordner. "fragmented" schreibt monoton mit konstantem Speicher und
+ * hat die Metadaten trotzdem vorn. Die Grenze liegt deshalb weit unter dem, was
+ * technisch ginge, und sinkt mit dem verfügbaren Arbeitsspeicher.
+ */
+export function fastStartMode(expectedBytes: number, deviceMemoryGb = 8): "in-memory" | "fragmented" {
+  const cap = deviceMemoryGb <= 4 ? 120_000_000 : 300_000_000;
+  return expectedBytes < cap ? "in-memory" : "fragmented";
+}

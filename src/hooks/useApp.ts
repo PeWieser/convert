@@ -66,9 +66,28 @@ export function useApp() {
   const abortRef = useRef<AbortController | null>(null);
   const probeLimit = useRef(createLimiter(2)).current;
 
-  useEffect(() => {
-    engine.init().then(setCaps);
+  /**
+   * Die Engine lädt einzelne Bausteine nach. Fällt dabei etwas aus – meist keine
+   * Verbindung – sagt die App es, statt später still Dateien zu verwerfen. Und
+   * sie versucht es erneut, sobald das Netz zurück ist.
+   */
+  const loadEngine = useCallback(() => {
+    engine
+      .init()
+      .then(setCaps)
+      .catch(() => setCaps({ video: [], audio: [], ready: false, subtitles: false }));
   }, []);
+  useEffect(() => {
+    loadEngine();
+    window.addEventListener("online", loadEngine);
+    return () => window.removeEventListener("online", loadEngine);
+  }, [loadEngine]);
+  useEffect(() => {
+    if (caps.missing?.length)
+      setNotice(
+        `Die Bausteine für ${caps.missing.join(" und ")} sind nicht geladen – vermutlich fehlt die Verbindung. Diese Formate gehen gerade nicht.`
+      );
+  }, [caps.missing]);
 
   const preset = useMemo(
     () => presets.find((p) => p.id === settings.selectedPresetId) ?? presets[0],
@@ -378,10 +397,27 @@ export function useApp() {
 
     let targets: Map<string, Target>;
     try {
-      targets = await fs.planTargets(
-        todo.map((i) => i.source),
-        settings
-      );
+      const sources = todo.map((i) => i.source);
+      targets = await fs.planTargets(sources, settings);
+      /*
+       * Mehrere Dateien in den Download-Ordner kommen oft nicht an: Der Browser
+       * erlaubt Mehrfach-Downloads nur nach Rückfrage, und wer die wegklickt,
+       * verliert den Rest des Laufs – ohne Meldung. Deshalb fragt die App hier
+       * einmal nach einem Zielordner. Der Klick auf „Konvertieren" ist die
+       * Geste, die dieser Dialog verlangt.
+       */
+      const loose = [...targets.values()].filter((t) => t.kind === "download").length;
+      if (loose > 1 && settings.destination === "auto" && fs.supported) {
+        const chosen = await fs.chooseCustomDestination();
+        if (chosen) {
+          updateSettings({ destination: "custom" });
+          targets = await fs.planTargets(sources, { ...settings, destination: "custom" });
+        } else {
+          setNotice(
+            "Kein Zielordner gewählt. Die Dateien gehen einzeln in den Download-Ordner – der Browser fragt dafür nach, ob er mehrere Dateien speichern darf."
+          );
+        }
+      }
     } catch (e) {
       setPlanning(false);
       setNotice(e instanceof Error ? e.message : "Der Zielordner konnte nicht vorbereitet werden. Es wurde nichts konvertiert.");
@@ -491,7 +527,7 @@ export function useApp() {
     abortRef.current = null;
     setRunning(false);
     setOverall(null);
-  }, [running, planning, settings, preset, patch, hardware.available]);
+  }, [running, planning, settings, preset, patch, hardware.available, updateSettings]);
 
   return {
     presets,

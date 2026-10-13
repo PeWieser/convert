@@ -169,14 +169,6 @@ export function FileRow({
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-1.5">
-        {status === "done" && (
-          <span
-            className="anim-fade grid h-[22px] w-[22px] place-items-center rounded-full bg-ok shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
-            aria-label="Fertig"
-          >
-            <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-          </span>
-        )}
         {adjusted && (
           <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
             {adjusted}
@@ -200,6 +192,20 @@ export function FileRow({
           </button>
         )}
       </div>
+
+      {/*
+        Deckungsgleich mit dem Lösch-X: gleiche Stelle, gleiche Größe. Sobald die
+        Zeile berührt wird, erscheint das X – der Haken tritt dafür zurück.
+        Kein Haken ohne geschriebene Datei: „Übersprungen" ist kein Erfolg.
+      */}
+      {status === "done" && item.outSize !== undefined && (
+        <span
+          className="anim-fade-soft absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok opacity-100 shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-opacity duration-200 group-hover:opacity-0"
+          aria-label="Fertig"
+        >
+          <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+        </span>
+      )}
 
       {removable && (
         <button

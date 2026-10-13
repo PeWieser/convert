@@ -46,10 +46,16 @@ import type {
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputSink } from "./platform";
-import { estimateOutputBytes, resolveJob } from "./job";
+import { estimateOutputBytes, fastStartMode, resolveJob } from "./job";
 import type { Job } from "./job";
 import type { MediaEngine } from "./platform";
 import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+
+/** `navigator.deviceMemory` kennt nur Chromium – fehlt es, rechnet die App vorsichtig. */
+function deviceMemoryGb(): number {
+  const v = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  return typeof v === "number" && v > 0 ? v : 4;
+}
 
 export const engineSupported: boolean =
   typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined" && typeof AudioEncoder !== "undefined";
@@ -68,34 +74,59 @@ const AUDIO_BACK: Record<string, AudioCodecId> = {
   "pcm-s16": "pcm",
 };
 
+/**
+ * Bausteine, die der Browser nicht selbst kann und die die App nachlädt. Jeder
+ * davon ist ein eigener Request – ohne Verbindung fehlt der Encoder. Früher
+ * wurde das geschluckt: Die App meldete sich bereit und warf dann jede Datei
+ * dieser Formate weg, ohne ein Wort zu sagen.
+ */
+const LAZY_ENCODERS: { codec: "aac" | "mp3" | "flac"; label: string; register: () => Promise<void> }[] = [
+  {
+    codec: "aac",
+    label: "AAC",
+    register: async () => void (await import("@mediabunny/aac-encoder")).registerAacEncoder(),
+  },
+  {
+    codec: "mp3",
+    label: "MP3",
+    register: async () => void (await import("@mediabunny/mp3-encoder")).registerMp3Encoder(),
+  },
+  {
+    codec: "flac",
+    label: "FLAC",
+    register: async () => void (await import("@mediabunny/flac-encoder")).registerFlacEncoder(),
+  },
+];
+
 export function initEngine(): Promise<Capabilities> {
   if (!capsPromise) {
     capsPromise = (async () => {
       if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false };
-      // Fehlende Encoder werden per WebAssembly nachgerüstet
-      try {
-        if (!(await canEncodeAudio("aac"))) (await import("@mediabunny/aac-encoder")).registerAacEncoder();
-      } catch {
-        /* ignorieren */
-      }
-      try {
-        if (!(await canEncodeAudio("mp3"))) (await import("@mediabunny/mp3-encoder")).registerMp3Encoder();
-      } catch {
-        /* ignorieren */
-      }
-      try {
-        if (!(await canEncodeAudio("flac"))) (await import("@mediabunny/flac-encoder")).registerFlacEncoder();
-      } catch {
-        /* ignorieren */
+      const missing: string[] = [];
+      for (const e of LAZY_ENCODERS) {
+        try {
+          if (await canEncodeAudio(e.codec)) continue;
+          await e.register();
+          if (!(await canEncodeAudio(e.codec))) missing.push(e.label);
+        } catch {
+          missing.push(e.label);
+        }
       }
       const v = (await getEncodableVideoCodecs().catch(() => [])) as string[];
       const a = (await getEncodableAudioCodecs().catch(() => [])) as string[];
+      /*
+       * Ein unvollständiges Ergebnis wird nicht eingefroren: Sonst fehlen die
+       * Bausteine für den Rest der Sitzung, auch wenn die Verbindung längst
+       * zurück ist.
+       */
+      if (missing.length) capsPromise = null;
       return {
         video: v.map((c) => VIDEO_BACK[c]).filter(Boolean),
         audio: a.map((c) => AUDIO_BACK[c]).filter(Boolean),
         ready: true,
         // WebCodecs kann Untertitel weder einbrennen noch entfernen – die Desktop-App kann es.
         subtitles: false,
+        missing: missing.length ? missing : undefined,
       };
     })();
   }
@@ -451,20 +482,8 @@ async function attempt(
     ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
     : new BufferTarget();
   const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
-  /*
-   * "in-memory" hält die fertige Datei bis zum Abschluss im Arbeitsspeicher – bis
-   * etwa ein Gigabyte vertretbar. Früher wurde Schnellstart darüber still
-   * fallengelassen: Der Schalter versprach etwas, das nicht passierte.
-   * Fragmentiertes MP4 schreibt die Metadaten ebenfalls nach vorn, braucht aber
-   * keinen Speicher proportional zur Dateigröße. Damit funktioniert Schnellstart
-   * in jeder Größe, statt ab einer Grenze heimlich auszuziehen.
-   */
   const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file.size;
-  const fast: false | "in-memory" | "fragmented" = !wantsFast
-    ? false
-    : expected < 1_000_000_000
-      ? "in-memory"
-      : "fragmented";
+  const fast: false | "in-memory" | "fragmented" = wantsFast ? fastStartMode(expected, deviceMemoryGb()) : false;
   const output = new Output({ format: makeFormat(p, fast), target });
 
   let conversion: Conversion | null = null;

@@ -185,6 +185,12 @@ export interface Capabilities {
   audio: AudioCodecId[];
   ready: boolean;
   /**
+   * Nachgeladene Bausteine, die nicht angekommen sind (meist: keine Verbindung).
+   * Steht hier etwas, fehlen Formate – und die Oberfläche sagt das, statt still
+   * jede Datei wegzuwerfen.
+   */
+  missing?: string[];
+  /**
    * Kann diese Engine Untertitel beibehalten, einbrennen oder entfernen?
    * Web (WebCodecs): nein. Desktop (FFmpeg): ja.
    * Die Oberfläche zeigt keine Regler für Fähigkeiten, die es nicht gibt.

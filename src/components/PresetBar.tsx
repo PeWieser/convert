@@ -1,5 +1,5 @@
 import { Copy, Plus, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { slotShift } from "../lib/order";
 import { presetSummary } from "../lib/presets";
@@ -57,12 +57,10 @@ export function PresetBar({
   const geometry = useRef<{ centers: { id: string; x: number }[]; pitch: number }>({ centers: [], pitch: 0 });
   /** Ein Loslassen nach dem Ziehen darf nicht noch als Klick gelten. */
   const swallowClick = useRef(false);
-  /**
-   * Einen Frame lang keine Transitionen: Beim Einsortieren wechseln DOM-Platz und
-   * Transform im selben Zug. Liefe die Transition mit, würde jede Karte sichtbar
-   * zurückfedern – genau das Springen, das hier weg soll.
-   */
-  const [freeze, setFreeze] = useState(false);
+  /** Wo jede Karte sichtbar stand, unmittelbar bevor einsortiert wird („First" in FLIP). */
+  const before = useRef<Map<string, number> | null>(null);
+  /** Die Versätze, aus denen die Karten nach dem Einsortieren in ihre Lücke gleiten. */
+  const [flip, setFlip] = useState<Map<string, number> | null>(null);
 
   useEffect(() => {
     if (!confirmId) return;
@@ -104,11 +102,21 @@ export function PresetBar({
          ihre Lücke. Gespeichert wird erst, wenn sie dort ist – sonst springt sie. */
       setDrag({ ...d, dx: null });
       window.setTimeout(() => {
-        setFreeze(true);
-        if (d.to !== d.from) onReorder(d.id, d.to);
-        setDrag(null);
-        /* Erst wenn der neue Stand gemalt ist, dürfen Transitionen wieder laufen. */
-        requestAnimationFrame(() => requestAnimationFrame(() => setFreeze(false)));
+        if (d.to === d.from) {
+          setDrag(null);
+          return;
+        }
+        const seen = new Map<string, number>();
+        for (const [id, el] of cards.current) seen.set(id, el.getBoundingClientRect().left);
+        before.current = seen;
+        onReorder(d.id, d.to);
+        /* Kommt die neue Reihenfolge nicht an, löst sich der Zug trotzdem. */
+        window.setTimeout(() => {
+          if (before.current === seen) {
+            before.current = null;
+            setDrag(null);
+          }
+        }, 1200);
       }, SETTLE_MS);
     };
 
@@ -125,6 +133,40 @@ export function PresetBar({
   /** Der Effekt hängt am Fenster; er muss den aktuellen Stand sehen, nicht den von vor drei Zügen. */
   const dragRef = useRef(drag);
   dragRef.current = drag;
+
+  /**
+   * Einsortieren ohne Sprung. Die neue Reihenfolge gibt jeder Karte einen anderen
+   * Platz im DOM; stünde sie einfach dort, zuckte die ganze Leiste. Also: messen,
+   * wo die Karten sichtbar standen, den Unterschied einen Frame lang als Versatz
+   * setzen und dann in die Lücke gleiten lassen. Das greift, wann immer die neue
+   * Reihenfolge eintrifft – sofort oder erst, nachdem sie gespeichert wurde.
+   */
+  useLayoutEffect(() => {
+    const seen = before.current;
+    if (!seen) return;
+    before.current = null;
+
+    /* Die natürlichen Plätze messen: kurz ohne die Verschiebung des Ziehens. */
+    const held: [HTMLElement, string][] = [];
+    for (const [, el] of cards.current) {
+      held.push([el, el.style.transform]);
+      el.style.transform = "";
+    }
+    const offsets = new Map<string, number>();
+    for (const [id, el] of cards.current) {
+      const was = seen.get(id);
+      if (was === undefined) continue;
+      const dx = was - el.getBoundingClientRect().left;
+      if (Math.abs(dx) > 0.5) offsets.set(id, dx);
+    }
+    for (const [el, t] of held) el.style.transform = t;
+
+    setDrag(null);
+    if (!offsets.size) return;
+    setFlip(offsets);
+    /* Erst wenn der Versatz gemalt ist, darf die Transition ihn wegnehmen. */
+    requestAnimationFrame(() => requestAnimationFrame(() => setFlip(null)));
+  }, [presets]);
 
   const beginPress = (p: Preset, index: number) => (e: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || e.button !== 0 || e.pointerType === "touch" || menu) return;
@@ -176,8 +218,9 @@ export function PresetBar({
          * Drei Zustände: eingefroren (Einsortieren, keine Transition), gezogen
          * (dem Zeiger folgen oder in die Lücke gleiten), gerückt (Platz machen).
          */
-        const cardStyle: CSSProperties | undefined = freeze
-          ? { transition: "none" }
+        const flipDx = flip?.get(p.id);
+        const cardStyle: CSSProperties | undefined = flipDx !== undefined
+          ? { transform: `translateX(${flipDx}px)`, transition: "none" }
           : isDragged
             ? drag!.dx === null
               ? {
@@ -241,14 +284,21 @@ export function PresetBar({
             }}
             style={cardStyle}
             className={cn(
-              "group relative flex w-[236px] shrink-0 cursor-pointer select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,opacity,background-color] duration-[300ms] ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
+              "group relative flex w-[236px] shrink-0 cursor-pointer select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,translate,scale,opacity,background-color] duration-[300ms] ease-[cubic-bezier(0.32,0.72,0,1)] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
               /*
                * Ausgewählt heißt: die ganze Karte ist der Knopf. Volles Blau mit
                * Licht von oben und Schatten nach unten – ein Körper, keine Fläche.
                */
               selected
                 ? "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_84%,white)_0%,var(--accent)_46%,color-mix(in_srgb,var(--accent)_82%,black)_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2),0_5px_16px_color-mix(in_srgb,var(--accent)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent)_55%,black)]"
-                : "hover:-translate-y-[1px]",
+                : !isDragged && "hover:-translate-y-[1px]",
+              /*
+               * Die Karte gibt beim Drücken nach – aber nur, wenn sie selbst
+               * gedrückt wird. Wer die drei Punkte anklickt, will das Menü, nicht
+               * eine zuckende Karte. Und wer zieht, folgt dem Zeiger: eine zweite
+               * Skalierung obendrauf würde beim Loslassen sichtbar springen.
+               */
+              !isDragged && "[&:active:not(:has(button:active))]:scale-[0.985]",
               disabled && !selected && "pointer-events-none opacity-40",
               disabled && selected && "opacity-70",
               isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)]"
