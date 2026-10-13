@@ -1,10 +1,14 @@
 import { Copy, Plus, Settings2, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { slotShift } from "../lib/order";
 import { presetSummary } from "../lib/presets";
 import type { Preset } from "../lib/types";
 import { cn } from "../utils/cn";
 import { DotsGlyph, PresetIcon } from "./PresetIcon";
 import { Menu, MenuItem } from "./ui";
+
+/** Ab dieser Bewegung in px ist es ein Ziehen und kein Klick mehr. */
+const DRAG_THRESHOLD = 6;
 
 export function PresetBar({
   presets,
@@ -17,6 +21,7 @@ export function PresetBar({
   onDuplicate,
   onDelete,
   onAdd,
+  onReorder,
 }: {
   presets: Preset[];
   selectedId: string;
@@ -30,10 +35,21 @@ export function PresetBar({
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onAdd: () => void;
+  /** Verschiebt ein Preset an eine neue Stelle in der Reihenfolge. */
+  onReorder: (id: string, toIndex: number) => void;
 }) {
   /** Offenes Menü samt dem Knopf, an dem es hängt. */
   const [menu, setMenu] = useState<{ id: string; anchor: HTMLElement } | null>(null);
   const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  /* ── Ziehen zum Umsortieren ── */
+  const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number } | null>(null);
+  const cards = useRef(new Map<string, HTMLDivElement>());
+  const press = useRef<{ id: string; index: number; x: number; y: number } | null>(null);
+  /** Mittellinien und Kartenabstand beim Losziehen – gemessen, nicht geraten. */
+  const geometry = useRef<{ centers: { id: string; x: number }[]; pitch: number }>({ centers: [], pitch: 0 });
+  /** Ein Loslassen nach dem Ziehen darf nicht noch als Klick gelten. */
+  const swallowClick = useRef(false);
 
   useEffect(() => {
     if (!confirmId) return;
@@ -42,8 +58,83 @@ export function PresetBar({
   }, [confirmId]);
 
   useEffect(() => {
-    if (disabled) setMenu(null);
+    if (disabled) {
+      setMenu(null);
+      setDrag(null);
+      press.current = null;
+    }
   }, [disabled]);
+
+  useEffect(() => {
+    if (!drag) return;
+    const id = drag.id;
+
+    const move = (e: PointerEvent) => {
+      const p = press.current;
+      if (!p) return;
+      const dx = e.clientX - p.x;
+      const { centers } = geometry.current;
+      /* Zielstelle = wie viele andere Karten liegen links vom Zeiger. */
+      const to = Math.max(0, Math.min(centers.length, centers.filter((c) => c.id !== id && c.x < e.clientX).length));
+      setDrag((d) => (d ? { ...d, dx, to } : d));
+    };
+
+    const up = () => {
+      const d = dragRef.current;
+      press.current = null;
+      setDrag(null);
+      if (d && d.to !== d.from) {
+        swallowClick.current = true;
+        onReorder(d.id, d.to);
+      }
+    };
+
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
+  }, [drag !== null, onReorder]);
+
+  /** Der Effekt hängt am Fenster; er muss den aktuellen Stand sehen, nicht den von vor drei Zügen. */
+  const dragRef = useRef(drag);
+  dragRef.current = drag;
+
+  const beginPress = (p: Preset, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || e.button !== 0 || e.pointerType === "touch" || menu) return;
+    press.current = { id: p.id, index, x: e.clientX, y: e.clientY };
+
+    const arm = (ev: PointerEvent) => {
+      const start = press.current;
+      if (!start || start.id !== p.id) return;
+      if (Math.abs(ev.clientX - start.x) < DRAG_THRESHOLD) return;
+      window.removeEventListener("pointermove", arm);
+      const ids = presets.map((x) => x.id);
+      const rects = ids.map((cid) => cards.current.get(cid)?.getBoundingClientRect());
+      const known = rects.filter((r): r is DOMRect => !!r);
+      if (known.length < 2) return;
+      geometry.current = {
+        centers: ids
+          .map((cid, i) => ({ id: cid, x: rects[i] ? rects[i]!.left + rects[i]!.width / 2 : 0 }))
+          .filter((c) => c.x > 0),
+        pitch: known[1].left - known[0].left,
+      };
+      setDrag({ id: start.id, dx: ev.clientX - start.x, from: index, to: index });
+      press.current = { ...start, x: ev.clientX };
+    };
+    window.addEventListener("pointermove", arm);
+    window.addEventListener(
+      "pointerup",
+      () => {
+        press.current = null;
+        window.removeEventListener("pointermove", arm);
+      },
+      { once: true }
+    );
+  };
 
   const close = () => {
     setMenu(null);
@@ -55,25 +146,45 @@ export function PresetBar({
       {presets.map((p, index) => {
         const selected = p.id === selectedId;
         const menuOpen = menu?.id === p.id;
+        const isDragged = drag?.id === p.id;
+        const shift = drag && !isDragged ? slotShift(index, drag.from, drag.to) : 0;
         return (
           <div
             key={p.id}
+            ref={(el) => {
+              if (el) cards.current.set(p.id, el);
+              else cards.current.delete(p.id);
+            }}
             role="radio"
             aria-checked={selected}
             aria-disabled={disabled}
             aria-label={`${p.name}, ${presetSummary(p)}`}
             title={disabled ? lockReason : undefined}
             tabIndex={selected ? 0 : -1}
-            onClick={() => !disabled && onSelect(p.id)}
+            onPointerDown={beginPress(p, index)}
+            onClick={() => {
+              if (swallowClick.current) {
+                swallowClick.current = false;
+                return;
+              }
+              if (!disabled) onSelect(p.id);
+            }}
             onDoubleClick={() => !disabled && onEdit(p.id)}
             onKeyDown={(e) => {
               if (disabled) return;
+              const n = presets.length;
+              /* Strg/⌘ + Pfeil verschiebt, der Pfeil allein wählt aus. */
+              if ((e.ctrlKey || e.metaKey) && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+                e.preventDefault();
+                const to = Math.max(0, Math.min(n - 1, index + (e.key === "ArrowRight" ? 1 : -1)));
+                if (to !== index) onReorder(p.id, to);
+                return;
+              }
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
                 onSelect(p.id);
               } else if (["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) {
                 e.preventDefault();
-                const n = presets.length;
                 const next =
                   e.key === "Home" ? 0 : e.key === "End" ? n - 1 : (index + (e.key === "ArrowRight" ? 1 : n - 1)) % n;
                 const radios = e.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="radio"]');
@@ -81,11 +192,20 @@ export function PresetBar({
                 onSelect(presets[next].id);
               }
             }}
+            style={
+              isDragged
+                ? { transform: `translate3d(${drag!.dx}px, -5px, 0) scale(1.035)`, zIndex: 20, cursor: "grabbing" }
+                : shift
+                  ? { transform: `translateX(${shift * geometry.current.pitch}px)` }
+                  : undefined
+            }
             className={cn(
               "group relative flex w-[236px] shrink-0 select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,opacity] duration-200 ease-out active:scale-[0.985] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
               selected ? "shadow-[0_0_0_2px_var(--accent),var(--sh-card)]" : "hover:-translate-y-[1px]",
               disabled && !selected && "pointer-events-none opacity-40",
-              disabled && selected && "opacity-70"
+              disabled && selected && "opacity-70",
+              isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)] transition-none",
+              !disabled && !drag && "cursor-grab"
             )}
           >
             <PresetIcon icon={p.icon} size={42} />
@@ -101,6 +221,7 @@ export function PresetBar({
                 setMenu(menuOpen ? null : { id: p.id, anchor: e.currentTarget });
               }}
               onDoubleClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
               disabled={disabled}
               aria-label={`${p.name}: Aktionen`}
               aria-haspopup="menu"

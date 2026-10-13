@@ -11,7 +11,7 @@
  * liegt das Rechteck immer waagerecht, egal wie schief die Quelle ist.
  */
 import { Crop as CropIcon, Film, Maximize, Music, Pause, Play, RotateCcw, RotateCw, Scissors } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { formatDuration } from "../lib/format";
 import { clampCrop, NO_ADJUSTMENTS } from "../lib/job";
@@ -87,6 +87,10 @@ export function FileInspector({
   const swapped = draft.rotate === 90 || draft.rotate === 270;
   const rotW = swapped ? srcH : srcW;
   const rotH = swapped ? srcW : srcH;
+
+  /* Bei 90/270 ist das Bild schmaler und höher als der Rahmen – genau seitenverkehrt. */
+  const innerW = swapped ? `${(rotH / rotW) * 100}%` : "100%";
+  const innerH = swapped ? `${(rotW / rotH) * 100}%` : "100%";
 
   const crop = useMemo(() => (hasVideo ? clampCrop(draft.crop ?? { left: 0, top: 0, width: rotW, height: rotH }, rotW, rotH) : undefined), [
     draft.crop,
@@ -167,7 +171,13 @@ export function FileInspector({
   /* ── Beschnitt ziehen ── */
   const stageRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0);
-  useEffect(() => {
+  /*
+   * useLayoutEffect, nicht useEffect: Beim Drehen ändern sich die Maße, und ein
+   * Render mit neuer Größe aber altem Maßstab ließ hochkante Bilder für ein Bild
+   * aus dem Rahmen laufen – und zwar so, dass es aussehen konnte wie ein
+   * abgeschnittener Film. Vor dem Malen messen, dann passiert das nicht.
+   */
+  useLayoutEffect(() => {
     const el = stageRef.current;
     if (!el || !rotW || !rotH) return;
     const fit = () => {
@@ -264,7 +274,7 @@ export function FileInspector({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav aria-label="Werkzeuge" className="w-[152px] shrink-0 space-y-0.5 overflow-y-auto border-r border-sep px-2.5 py-1">
+        <nav aria-label="Werkzeuge" className="w-[188px] shrink-0 space-y-0.5 overflow-y-auto border-r border-sep px-3 py-1">
           {tools.map((t) => {
             const active = tool === t.id;
             return (
@@ -296,14 +306,22 @@ export function FileInspector({
                 style={{ width: rotW * scale, height: rotH * scale }}
                 onPointerDown={tool === "crop" ? startDrag("move") : undefined}
               >
-                {/* Bild: außen achsenparallel, innen gedreht – der Beschnitt liegt über der Drehung. */}
-                <div className="absolute inset-0 grid place-items-center overflow-hidden">
+                {/*
+                  Bild: außen ein achsenparalleler Rahmen in der Größe nach der Drehung,
+                  darin das gedrehte Bild. Der Beschnitt liegt über der Drehung.
+
+                  Das Bild wird in Prozent des Rahmens angegeben, nicht in Pixeln aus
+                  dem Maßstab. Dadurch ist es rechnerisch immer genau eingeschrieben –
+                  auch in dem Moment, in dem der Maßstab selbst noch hinterherhinkt.
+                  Nichts kann mehr aus dem Rahmen fallen.
+                */}
+                <div className="absolute inset-0">
                   {playable ? (
                     <video
                       ref={videoRef}
                       src={url}
-                      className="block select-none shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
-                      style={{ width: srcW * scale, height: srcH * scale, transform: `rotate(${draft.rotate}deg)` }}
+                      className="absolute left-1/2 top-1/2 block select-none object-fill shadow-[0_6px_24px_rgba(0,0,0,0.45)]"
+                      style={{ width: innerW, height: innerH, transform: `translate(-50%, -50%) rotate(${draft.rotate}deg)` }}
                       playsInline
                       onPlay={() => setPlaying(true)}
                       onPause={() => setPlaying(false)}
@@ -320,12 +338,8 @@ export function FileInspector({
                       src={item.thumb}
                       alt=""
                       draggable={false}
-                      className="block select-none object-cover"
-                      style={{
-                        width: srcW * scale,
-                        height: srcH * scale,
-                        transform: `rotate(${draft.rotate}deg)`,
-                      }}
+                      className="absolute left-1/2 top-1/2 block select-none object-fill"
+                      style={{ width: innerW, height: innerH, transform: `translate(-50%, -50%) rotate(${draft.rotate}deg)` }}
                     />
                   ) : (
                     <div className="grid h-full w-full place-items-center bg-[#1c1c20] text-[13px] text-white/45">
@@ -427,18 +441,10 @@ export function FileInspector({
                     <RotateCw className="h-4 w-4" />
                   </button>
                 </div>
-                <Segmented
-                  value={draft.rotate}
-                  onChange={(v) => setDraft((d) => ({ ...d, rotate: v }))}
-                  options={[
-                    { value: 0 as const, label: "0°" },
-                    { value: 90 as const, label: "90°" },
-                    { value: 180 as const, label: "180°" },
-                    { value: 270 as const, label: "270°" },
-                  ]}
-                />
+                /* Keine Gradzahlen – das Bild selbst ist die Rückmeldung,
+                   und was hinten herauskommt, sagt das Ergebnismaß. */
                 <span className="tnum ml-auto text-[12.5px] text-label2">
-                  {rotW} × {rotH}
+                  {rotW} × {rotH} px
                 </span>
                 {rotateChanged && <RevertMark onRevert={() => revert("rotate")} label="Drehung" />}
               </div>
@@ -549,6 +555,8 @@ function Track({
   const trimRef = useRef(onTrim);
   trimRef.current = onTrim;
   const [pull, setPull] = useState<null | "start" | "end">(null);
+  /** Zeit unter dem Zeiger – die Leiste ist sonst ein Lineal ohne Zahlen. */
+  const [hover, setHover] = useState<number | null>(null);
   const pct = (t: number) => (duration ? `${Math.max(0, Math.min(100, (t / duration) * 100))}%` : "0%");
 
   useEffect(() => {
@@ -569,6 +577,10 @@ function Track({
     };
   }, [pull, duration, t0, t1]);
 
+  /* Beim Ziehen eines Griffs gilt dessen Zeit, sonst die Stelle unter dem Zeiger. */
+  const tip = pull ? (pull === "start" ? t0 : t1) : hover;
+  const tipPct = duration && tip !== null ? Math.max(6, Math.min(94, (tip / duration) * 100)) : 0;
+
   return (
     <div
       ref={ref}
@@ -578,6 +590,12 @@ function Track({
         if (!r || !duration) return;
         onSeek(round(((e.clientX - r.left) / r.width) * duration));
       }}
+      onPointerMove={(e) => {
+        const r = ref.current?.getBoundingClientRect();
+        if (!r || !duration || pull) return;
+        setHover(round(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration))));
+      }}
+      onPointerLeave={() => setHover(null)}
     >
       {/* Behaltener Bereich */}
       <div
@@ -603,16 +621,21 @@ function Track({
               e.preventDefault();
               setPull(side);
             }}
-            className={cn(
-              "absolute top-1/2 h-5 w-[9px] -translate-y-1/2 rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-1 ring-black/10",
-              "-ml-[4.5px] cursor-ew-resize"
-            )}
+            className="absolute top-1/2 h-5 w-[9px] -ml-[4.5px] -translate-y-1/2 cursor-ew-resize rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-1 ring-black/10"
             style={{ left: pct(side === "start" ? t0 : t1) }}
           >
             <span className="absolute left-1/2 top-1/2 h-2.5 w-px -translate-x-1/2 -translate-y-1/2 bg-black/25" />
           </span>
         ))}
+      {/* Zeit am Zeiger */}
+      {tip !== null && duration > 0 && (
+        <span
+          className="anim-fade tnum pointer-events-none absolute bottom-full mb-1.5 -translate-x-1/2 rounded-[6px] bg-fill2 px-1.5 py-[2px] text-[11px] font-medium text-label shadow-[0_2px_6px_rgba(0,0,0,0.22)]"
+          style={{ left: `${tipPct}%` }}
+        >
+          {formatDuration(tip)}
+        </span>
+      )}
     </div>
   );
 }
-

@@ -8,16 +8,13 @@ export function SettingsSheet({
   onChange,
   onClose,
   onForgetFolders,
-  onResetPresets,
 }: {
   settings: Settings;
   hardware: HardwareInfo;
   onChange: (patch: Partial<Settings>) => void;
   onClose: () => void;
   onForgetFolders: () => void;
-  onResetPresets: () => void;
 }) {
-  const [confirmReset, setConfirmReset] = useState(false);
   const [forgotten, setForgotten] = useState(false);
 
   return (
@@ -78,6 +75,18 @@ export function SettingsSheet({
               onChange={(v) => onChange({ outFolderName: v.replace(/[\\/:*?"<>|]/g, "") })}
             />
           </Row>
+          <Row label="Gemerkte Ordner">
+            <Btn
+              variant="plain"
+              disabled={forgotten}
+              onClick={() => {
+                onForgetFolders();
+                setForgotten(true);
+              }}
+            >
+              {forgotten ? "Vergessen" : "Vergessen …"}
+            </Btn>
+          </Row>
           <Row label="Wenn Datei existiert">
             <Select
               value={settings.collision}
@@ -91,43 +100,6 @@ export function SettingsSheet({
           </Row>
         </Group>
 
-        <Group title="Zurücksetzen">
-          <Row label="Gemerkte Ordner">
-            <Btn
-              variant="plain"
-              disabled={forgotten}
-              onClick={() => {
-                onForgetFolders();
-                setForgotten(true);
-              }}
-            >
-              {forgotten ? "Vergessen" : "Vergessen …"}
-            </Btn>
-          </Row>
-          <Row label="Presets">
-            {confirmReset ? (
-              <div className="anim-fade flex items-center gap-1">
-                <Btn variant="ghost" onClick={() => setConfirmReset(false)}>
-                  Abbrechen
-                </Btn>
-                <Btn
-                  variant="primary"
-                  className="!bg-bad"
-                  onClick={() => {
-                    onResetPresets();
-                    setConfirmReset(false);
-                  }}
-                >
-                  Zurücksetzen
-                </Btn>
-              </div>
-            ) : (
-              <Btn variant="danger" onClick={() => setConfirmReset(true)}>
-                Zurücksetzen …
-              </Btn>
-            )}
-          </Row>
-        </Group>
       </div>
     </Sheet>
   );

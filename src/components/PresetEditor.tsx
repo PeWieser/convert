@@ -578,7 +578,7 @@ export function PresetEditor({
       </header>
 
       <div className="flex min-h-0 flex-1">
-        <nav aria-label="Kategorien" className="w-[152px] shrink-0 space-y-0.5 overflow-y-auto border-r border-sep px-2.5 py-1">
+        <nav aria-label="Kategorien" className="w-[188px] shrink-0 space-y-0.5 overflow-y-auto border-r border-sep px-3 py-1">
           {sections.map(({ id, label, icon }) => {
             const active = section === id;
             return (

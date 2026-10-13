@@ -112,9 +112,10 @@ export function RevertMark({ onRevert, label = "Wert" }: { onRevert: () => void;
       title={`${label} zurücksetzen`}
       className={cn(
         "group/revert anim-fade grid h-6 w-6 shrink-0 place-items-center rounded-full",
-        "bg-ok/15 text-ok ring-1 ring-ok/30",
-        "transition-[background-color,color,box-shadow,transform] duration-150",
-        "hover:scale-105 hover:bg-warn/15 hover:text-warn hover:ring-warn/35 active:scale-90"
+        /* Derselbe Auftritt wie das Fertig-Abzeichen in der Dateiliste: volle Farbe, weißes Zeichen. */
+        "bg-ok text-white shadow-[0_1px_2px_rgba(0,0,0,0.18)]",
+        "transition-[background-color,transform] duration-150",
+        "hover:scale-105 hover:bg-warn active:scale-90"
       )}
     >
       <span className="relative grid h-3.5 w-3.5 place-items-center">

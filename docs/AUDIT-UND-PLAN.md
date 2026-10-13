@@ -739,6 +739,45 @@ damit `npm run typecheck` auch den Test prüft; esbuild allein tut das nicht.
 geordnet), P2-12, P2-15, P2-10. Der Seam deckt die Logik ab; `MediaEngine` und
 `PlatformFS` als austauschbare Schnittstellen fehlen noch und kommen mit Phase 5.
 
+### Nachtrag: Korrekturen nach dem ersten Ausprobieren
+
+Rückmeldungen aus der Benutzung, alle umgesetzt:
+
+- **Der globale Preset-Reset in den Einstellungen ist weg.** Damit ist die Entscheidung
+  aus dem Nachtrag oben („der globale Reset bleibt als Notausstieg-Luke") überholt.
+  Ein Knopf, der die eigene Arbeit löscht, war keine Luke, sondern eine Falle —
+  zumal es `Duplizieren` gibt und jedes Preset einzeln löschbar ist. Die Gruppe
+  `Zurücksetzen` hatte damit noch genau eine Zeile — eine Überschrift für einen einzigen
+  Eintrag ist keine Gliederung. `Gemerkte Ordner → Vergessen` ist zur Gruppe `Ausgabe`
+  gewandert, wo es um Ordner geht, und die Gruppe ist aufgelöst. Die Einstellungen haben
+  jetzt drei Abschnitte: `Allgemein · Leistung · Ausgabe`.
+- **Die Kategorien-Leiste ist breiter** (152 → 188 px, innen `px-3`), im Preset-Editor
+  und im Datei-Inspektor gleich. Sie trägt die Navigation und war zu schüchtern dafür.
+- **Der Änderungs-Haken ist jetzt ein voller Kreis** in Grün mit weißem Haken; beim
+  Überfahren wird er orange mit weißem Undo-Pfeil. Damit ist er als Knopf erkennbar —
+  die vorige Fassung (zart getönt mit Ring) sah aus wie ein Zustand, nicht wie eine
+  Einladung. Es ist derselbe Auftritt wie das Fertig-Abzeichen in der Dateiliste.
+- **Gradzahlen beim Drehen sind weg.** Der Umschalter `0° · 90° · 180° · 270°` war
+  doppelt gemoppelt mit den beiden Drehknöpfen und hat irritiert. Geblieben sind
+  ⟲ ⟳ und das Ergebnismaß in Pixeln — das ist die Folge, die interessiert.
+- **Hochkante Bilder liefen beim Drehen aus dem Rahmen.** Zwei Ursachen, beide behoben:
+  die Bühne maß mit `useEffect` *nach* dem Malen, also renderte ein Bild mit neuer
+  Größe und altem Maßstab; und ein `overflow-hidden` um das gedrehte Bild schnitt ab,
+  wo nichts zu schneiden war. Das Bild wird jetzt **in Prozent des Rahmens** angegeben
+  statt in Pixeln aus dem Maßstab und ist damit rechnerisch immer eingeschrieben —
+  auch in dem Moment, in dem der Maßstab hinterherhinkt. Gemessen wird mit
+  `useLayoutEffect`, also vor dem ersten Bild.
+- **Die Zeitleiste nennt die Zeit am Zeiger.** Beim Überfahren und beim Ziehen eines
+  Griffs erscheint die Stelle als kleine Marke über der Leiste. Ein Lineal ohne
+  Zahlen war sie vorher.
+- **Presets lassen sich umsortieren, indem man sie zieht.** Mit Zeiger-Ereignissen,
+  nicht mit HTML5-Drag-and-Drop: natives Ziehen hätte dem Klick (auswählen), dem
+  Doppelklick (bearbeiten) und dem Drei-Punkte-Menü in derselben Karte in die Quere
+  gegriffen. Die Karte folgt dem Zeiger, die anderen rücken sichtbar aus dem Weg,
+  erst beim Loslassen wird gespeichert. Tastatur: `Strg/⌘ + ←/→`. Die Rechnung dafür
+  liegt als reine Funktion in `lib/order.ts` (`slotShift`, `moveTo`) und ist getestet —
+  Umsortieren ist genau die Art Logik, die still falsch wird.
+
 ---
 
 ## Teil 7 — Offene Punkte für später

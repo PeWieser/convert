@@ -43,6 +43,7 @@ Zielgröße und Kopier-Entscheidung einmal aus, beide Engines bedienen sich dara
 - `⌘/Strg + O` Dateien · `⇧⌘/Strg + O` Ordner · `⌘/Strg + ↩` konvertieren ·
   `⌘/Strg + ,` Einstellungen · `Esc` schließt
 - Im Inspektor: `Leertaste` spielt/pausiert · `←`/`→` spulen 5 s · mit `⇧` 1 s
+- `Strg/⌘ + ←/→` verschiebt das gewählte Preset (Ziehen mit der Maus geht auch)
 
 Das Ziel ergibt sich von selbst: Dateien aus einem Ordner landen im Unterordner
 „Konvertiert" neben den Originalen, einzelne Dateien im gemerkten Quellordner,
@@ -72,12 +73,13 @@ src/
 │  ├─ FileInspector.tsx     eine Datei bearbeiten: Player · Drehen · Zuschneiden · Schneiden
 │  ├─ Footer.tsx            Ziel · Fortschritt · Konvertieren/Stoppen
 │  ├─ PresetEditor.tsx      Preset-Entwurf in Kategorien, mit Änderungs-Haken
-│  ├─ SettingsSheet.tsx     Allgemein · Leistung · Ausgabe · Zurücksetzen
+│  ├─ SettingsSheet.tsx     Allgemein · Leistung · Ausgabe
 │  ├─ PresetIcon.tsx        eigene Glyphen
 │  └─ ui.tsx                Btn · Group · Row · Select · Segmented · Switch · Slider · Sheet
 └─ lib/
    ├─ types.ts              das gemeinsame Vokabular – die UI kennt nur diese Typen
    ├─ presets.ts            Presets, Skalierungs-Geometrie, Copy-Heuristik
+   ├─ order.ts              Umsortieren: slotShift · moveTo
    ├─ job.ts                Preset + Analyse + Anpassungen → ein Auftrag für beide Engines
    ├─ engine.ts             Web-Engine: initEngine · probe · convert (Mediabunny)
    ├─ ffmpeg.ts             baut den FFmpeg-Befehl (heute Vorschau, ab Phase 5 ausgeführt)
@@ -122,6 +124,7 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
       pro Wert, drei Punkte mit Menü
       (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
 - [ ] **Phase 4b** — Einstellungen gliedern, Preset-Verwaltung bei vielen Einträgen
+      (Umsortieren per Ziehen ist erledigt)
 - [ ] **Phase 5** — Windows-App: Electron + FFmpeg
 
 ## Lizenzen

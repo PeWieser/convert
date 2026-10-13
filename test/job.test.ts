@@ -11,6 +11,7 @@
  */
 import { buildFfmpegCommand } from "../src/lib/ffmpeg";
 import { clampCrop, estimateOutputBytes, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
+import { moveTo, slotShift } from "../src/lib/order";
 import { defaultPresets } from "../src/lib/presets";
 import type { HardwareInfo, MediaInfo, Preset } from "../src/lib/types";
 
@@ -145,6 +146,21 @@ eq("gedreht", isAdjusted({ rotate: 90 }), true);
 eq("gekürzt", isAdjusted({ rotate: 0, trim: { start: 2 } }), true);
 eq("beschnitten", isAdjusted({ rotate: 0, crop: { left: 0, top: 0, width: 10, height: 10 } }), true);
 eq("Untertitel ausdrücklich entfernen", isAdjusted({ rotate: 0, subtitles: { mode: "none" } }), true);
+
+/* ── Umsortieren ── */
+
+group("Reihenfolge");
+/* Gezählt wird immer die ganze Liste: Stelle 0 ist die gezogene Karte selbst. */
+eq("von vorn nach hinten: die mittleren rücken nach links", [0, 1, 2, 3].map((i) => slotShift(i, 0, 2)), [2, -1, -1, 0]);
+eq("von hinten nach vorn: die mittleren rücken nach rechts", [0, 1, 2, 3].map((i) => slotShift(i, 3, 1)), [0, 1, 1, -2]);
+eq("an Ort und Stelle bewegt sich niemand", [0, 1, 2].map((i) => slotShift(i, 1, 1)), [0, 0, 0]);
+eq("ganz nach vorn", [0, 1, 2, 3].map((i) => slotShift(i, 3, 0)), [1, 1, 1, -3]);
+eq("ganz nach hinten", [0, 1, 2, 3].map((i) => slotShift(i, 0, 3)), [3, -1, -1, -1]);
+eq("moveTo nach hinten", moveTo(["a", "b", "c", "d"], 0, 2), ["b", "c", "a", "d"]);
+eq("moveTo nach vorn", moveTo(["a", "b", "c", "d"], 3, 1), ["a", "d", "b", "c"]);
+eq("moveTo ganz nach vorn", moveTo(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
+eq("moveTo klemmt ans Ende", moveTo(["a", "b", "c"], 0, 99), ["b", "c", "a"]);
+eq("moveTo mit fremder Stelle ändert nichts", moveTo(["a", "b"], 7, 0), ["a", "b"]);
 
 /* ── Ergebnis ── */
 

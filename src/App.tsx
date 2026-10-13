@@ -161,6 +161,7 @@ export default function App() {
             onEdit={openEditor}
             onDuplicate={app.duplicatePreset}
             onDelete={app.deletePreset}
+            onReorder={app.movePreset}
             onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
           />
           <Stage
@@ -238,7 +239,6 @@ export default function App() {
           onChange={app.updateSettings}
           onClose={() => setShowSettings(false)}
           onForgetFolders={() => void app.forgetDestinations()}
-          onResetPresets={app.resetAllPresets}
         />
       )}
 

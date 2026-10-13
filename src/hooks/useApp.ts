@@ -14,6 +14,7 @@ import {
 import type { Target } from "../lib/fsa";
 import { detectHardware } from "../lib/hardware";
 import { NO_ADJUSTMENTS } from "../lib/job";
+import { moveTo } from "../lib/order";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
@@ -183,10 +184,21 @@ export function useApp() {
     [presets, setPresets, settings.selectedPresetId, updateSettings]
   );
 
-  const resetAllPresets = useCallback(() => {
-    setPresets(defaultPresets());
-    updateSettings({ selectedPresetId: "preset-mp4" });
-  }, [setPresets, updateSettings]);
+  /**
+   * Verschiebt ein Preset an eine neue Stelle.
+   * `toIndex` zählt ohne das verschobene Preset – so gibt die Oberfläche die
+   * Stelle genauso an, wie sie sie meint.
+   */
+  const movePreset = useCallback(
+    (id: string, toIndex: number) => {
+      setPresets((prev) => {
+        const from = prev.findIndex((p) => p.id === id);
+        if (from < 0) return prev;
+        return moveTo(prev, from, toIndex);
+      });
+    },
+    [setPresets]
+  );
 
   /* ───────── Dateien ───────── */
 
@@ -484,7 +496,7 @@ export function useApp() {
     createPreset,
     duplicatePreset,
     deletePreset,
-    resetAllPresets,
+    movePreset,
     addFiles,
     addFolder,
     addDrop,
