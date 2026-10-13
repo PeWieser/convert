@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { HardwareInfo, Settings } from "../lib/types";
-import { Btn, Group, Row, Select, Sheet, Switch, TextField } from "./ui";
+import { Btn, Group, Row, Segmented, Select, Sheet, Switch, TextField } from "./ui";
 
 export function SettingsSheet({
   settings,
@@ -8,16 +8,13 @@ export function SettingsSheet({
   onChange,
   onClose,
   onForgetFolders,
-  onResetPresets,
 }: {
   settings: Settings;
   hardware: HardwareInfo;
   onChange: (patch: Partial<Settings>) => void;
   onClose: () => void;
   onForgetFolders: () => void;
-  onResetPresets: () => void;
 }) {
-  const [confirmReset, setConfirmReset] = useState(false);
   const [forgotten, setForgotten] = useState(false);
 
   return (
@@ -30,23 +27,74 @@ export function SettingsSheet({
       </header>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6 pt-3">
-        <Group>
-          <Row label="Grafikkarte verwenden" sub={hardware.available ? `${hardware.gpu} · ${hardware.encoder}` : "Keine Grafikkarte gefunden"}>
+        <Group title="Allgemein">
+          <Row label="Erscheinungsbild">
+            <Segmented
+              value={settings.appearance}
+              onChange={(a) => onChange({ appearance: a })}
+              options={[
+                { value: "auto", label: "System" },
+                { value: "light", label: "Hell" },
+                { value: "dark", label: "Dunkel" },
+              ]}
+            />
+          </Row>
+        </Group>
+
+        <Group title="Leistung">
+          <Row
+            label="Grafikkarte verwenden"
+            sub={
+              hardware.available
+                ? [hardware.gpu, hardware.encoder].filter(Boolean).join(" · ")
+                : hardware.hidden
+                  ? "Der Browser verdeckt die Grafikkarte – konvertiert wird trotzdem"
+                  : "Keine Grafikkarte gefunden"
+            }
+          >
             <Switch
               disabled={!hardware.available}
               checked={settings.hardware === "auto" && hardware.available}
               onChange={(on) => onChange({ hardware: on ? "auto" : "off" })}
             />
           </Row>
+          <Row
+            label="Parallele Dateien"
+            sub="Automatisch: zwei mit Grafikkarte, sonst eine."
+          >
+            <Select
+              value={settings.concurrency}
+              onChange={(n) => onChange({ concurrency: n })}
+              options={[
+                { value: 0, label: "Automatisch" },
+                { value: 1, label: "1 Datei" },
+                { value: 2, label: "2 Dateien" },
+                { value: 3, label: "3 Dateien" },
+                { value: 4, label: "4 Dateien" },
+              ]}
+            />
+          </Row>
         </Group>
 
-        <Group>
+        <Group title="Ausgabe">
           <Row label="Ordnername">
             <TextField
               value={settings.outFolderName}
               placeholder="Konvertiert"
               onChange={(v) => onChange({ outFolderName: v.replace(/[\\/:*?"<>|]/g, "") })}
             />
+          </Row>
+          <Row label="Gemerkte Ordner">
+            <Btn
+              variant="plain"
+              disabled={forgotten}
+              onClick={() => {
+                onForgetFolders();
+                setForgotten(true);
+              }}
+            >
+              {forgotten ? "Vergessen" : "Vergessen …"}
+            </Btn>
           </Row>
           <Row label="Wenn Datei existiert">
             <Select
@@ -61,43 +109,6 @@ export function SettingsSheet({
           </Row>
         </Group>
 
-        <Group>
-          <Row label="Gemerkte Ordner">
-            <Btn
-              variant="plain"
-              disabled={forgotten}
-              onClick={() => {
-                onForgetFolders();
-                setForgotten(true);
-              }}
-            >
-              {forgotten ? "Vergessen" : "Vergessen …"}
-            </Btn>
-          </Row>
-          <Row label="Presets">
-            {confirmReset ? (
-              <div className="anim-fade flex items-center gap-1">
-                <Btn variant="ghost" onClick={() => setConfirmReset(false)}>
-                  Abbrechen
-                </Btn>
-                <Btn
-                  variant="primary"
-                  className="!bg-bad"
-                  onClick={() => {
-                    onResetPresets();
-                    setConfirmReset(false);
-                  }}
-                >
-                  Zurücksetzen
-                </Btn>
-              </div>
-            ) : (
-              <Btn variant="danger" onClick={() => setConfirmReset(true)}>
-                Zurücksetzen …
-              </Btn>
-            )}
-          </Row>
-        </Group>
       </div>
     </Sheet>
   );

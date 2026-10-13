@@ -1,22 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConvertError, convert, initEngine, isCanceled, probe } from "../lib/engine";
-import { baseName } from "../lib/format";
+import { ConvertError, webEngine } from "../lib/engine";
+import { plural } from "../lib/format";
 import { CONTAINERS } from "../lib/formats";
-import {
-  chooseCustomDestination,
-  collectFromDrop,
-  forgetFolders,
-  openOutput,
-  pickFiles,
-  pickFolder,
-  planTargets,
-} from "../lib/fsa";
-import type { Target } from "../lib/fsa";
+import { webFS } from "../lib/fsa";
+import type { MediaEngine, PlatformFS, Target } from "../lib/platform";
+
+/** Die Naht, an der die Desktop-App später eine andere Implementierung einsetzt. */
+const fs: PlatformFS = webFS;
+const engine: MediaEngine = webEngine;
 import { detectHardware } from "../lib/hardware";
-import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, factoryPreset, normalizePreset } from "../lib/presets";
+import { NO_ADJUSTMENTS } from "../lib/job";
+import { moveTo } from "../lib/order";
+import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
-import type { Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
+import type { Adjustments, Capabilities, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
+
+/** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
+const willRearm = (i: Item) =>
+  (i.status === "done" || (i.status === "failed" && i.health.state !== "broken")) && !!i.info;
 
 const sameFile = (a: SourceFile, b: SourceFile) =>
   a.name === b.name &&
@@ -40,24 +42,61 @@ export function useApp() {
   const [settings, setSettings] = usePersistent<Settings>(
     "wandler.settings.v1",
     () => DEFAULT_SETTINGS,
-    (s) => ({ ...DEFAULT_SETTINGS, ...s })
+    // `concurrency` war in früheren Versionen unbenutzt und stand auf 1;
+    // gemeint war „automatisch", das ist heute die 0.
+    (s) => ({ ...DEFAULT_SETTINGS, ...s, concurrency: s.concurrency === 1 ? 0 : (s.concurrency ?? 0) })
   );
   const [items, setItems] = useState<Item[]>([]);
   const [running, setRunning] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [overall, setOverall] = useState<Overall | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false });
-  const hardware = useMemo(() => detectHardware(), []);
+  /**
+   * Ausgewählte Dateien. Ist die Liste leer, gilt der Lauf allen – Auswahl ist
+   * eine bewusste Einschränkung, kein dauerhafter Modus.
+   */
+  const [selected, setSelected] = useState<string[]>([]);
+  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
+  /*
+   * Der erste Blick kommt aus WebGL, damit das Fenster nicht leer steht. Die
+   * Auskunft, auf die sich die App verlässt, liefert die Engine: im Web gefiltert
+   * durch das, was der Browser encodieren kann, auf dem Desktop aus
+   * `ffmpeg -encoders` (Befund P2-10).
+   */
+  const [hardware, setHardware] = useState<HardwareInfo>(() => detectHardware());
+  useEffect(() => {
+    engine.hardware?.().then(setHardware).catch(() => undefined);
+  }, []);
 
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
+  const presetsRef = useRef<Preset[]>([]);
+  presetsRef.current = presets;
   const abortRef = useRef<AbortController | null>(null);
   const probeLimit = useRef(createLimiter(2)).current;
 
-  useEffect(() => {
-    initEngine().then(setCaps);
+  /**
+   * Die Engine lädt einzelne Bausteine nach. Fällt dabei etwas aus – meist keine
+   * Verbindung – sagt die App es, statt später still Dateien zu verwerfen. Und
+   * sie versucht es erneut, sobald das Netz zurück ist.
+   */
+  const loadEngine = useCallback(() => {
+    engine
+      .init()
+      .then(setCaps)
+      .catch(() => setCaps({ video: [], audio: [], ready: false, subtitles: false }));
   }, []);
+  useEffect(() => {
+    loadEngine();
+    window.addEventListener("online", loadEngine);
+    return () => window.removeEventListener("online", loadEngine);
+  }, [loadEngine]);
+  useEffect(() => {
+    if (caps.missing?.length)
+      setNotice(
+        `Die Bausteine für ${caps.missing.join(" und ")} sind nicht geladen – vermutlich fehlt die Verbindung. Diese Formate gehen gerade nicht.`
+      );
+  }, [caps.missing]);
 
   const preset = useMemo(
     () => presets.find((p) => p.id === settings.selectedPresetId) ?? presets[0],
@@ -88,56 +127,80 @@ export function useApp() {
 
   /** Nach einem Durchlauf: neues Ziel-Format → Dateien sind wieder startbereit. */
   const rearm = useCallback(() => {
+    const attempted = itemsRef.current.some((i) => i.attempted);
+    const affected = attempted ? itemsRef.current.filter(willRearm).length : 0;
     setItems((prev) =>
       prev.some((i) => i.attempted)
         ? prev.map((i) =>
-            (i.status === "done" || (i.status === "failed" && i.health.state !== "broken")) && i.info
-              ? { ...i, status: "ready", progress: 0, message: undefined, outSize: undefined, outPlace: undefined, repaired: false, final: false, attempted: false }
+            willRearm(i)
+              ? { ...i, status: "ready" as const, progress: 0, message: undefined, outSize: undefined, outPlace: undefined, repaired: false, final: false, attempted: false }
               : { ...i, attempted: false }
           )
         : prev
     );
+    return affected;
   }, []);
 
   const selectPreset = useCallback(
     (id: string) => {
-      if (id !== settings.selectedPresetId) rearm();
+      if (id !== settings.selectedPresetId) {
+        const affected = rearm();
+        if (affected > 0)
+          setNotice(
+            `${plural(affected, "fertige Datei wird", "fertige Dateien werden")} mit dem neu gewählten Preset erneut konvertiert.`
+          );
+      }
       updateSettings({ selectedPresetId: id });
     },
     [updateSettings, rearm, settings.selectedPresetId]
   );
 
-  const updatePreset = useCallback(
+  /**
+   * Nimmt den Entwurf aus dem Preset-Editor entgegen. Erst dieser Aufruf schreibt
+   * dauerhaft – und erst hier werden fertige Dateien wieder startbereit, angekündigt.
+   */
+  const savePreset = useCallback(
     (p: Preset) => {
-      rearm();
-      setPresets((prev) => prev.map((x) => (x.id === p.id ? normalizePreset(p) : x)));
+      const next = normalizePreset(p);
+      const before = presetsRef.current.find((x) => x.id === next.id);
+      if (before && JSON.stringify(before) === JSON.stringify(next)) return;
+      setPresets((prev) => prev.map((x) => (x.id === next.id ? next : x)));
+      const affected = rearm();
+      if (affected > 0)
+        setNotice(
+          `${plural(affected, "fertige Datei wird", "fertige Dateien werden")} mit den neuen Einstellungen erneut konvertiert.`
+        );
     },
     [setPresets, rearm]
   );
 
-  const addPreset = useCallback(() => {
-    const np = cloneAsNew(preset, "Neues Preset");
-    delete np.builtin;
-    setPresets((prev) => [...prev, np]);
-    updateSettings({ selectedPresetId: np.id });
-    return np.id;
-  }, [preset, setPresets, updateSettings]);
-
-  const duplicatePreset = useCallback(
-    (id: string) => {
-      const base = presets.find((p) => p.id === id);
-      if (!base) return id;
-      const np = cloneAsNew(base);
-      setPresets((prev) => {
-        const i = prev.findIndex((p) => p.id === id);
-        const next = [...prev];
-        next.splice(i + 1, 0, np);
-        return next;
-      });
+  /** Ein neues Preset entsteht erst beim Speichern – nicht schon beim Öffnen des Editors. */
+  const createPreset = useCallback(
+    (p: Preset) => {
+      const np = normalizePreset(p);
+      delete np.builtin;
+      setPresets((prev) => [...prev, np]);
       updateSettings({ selectedPresetId: np.id });
       return np.id;
     },
-    [presets, setPresets, updateSettings]
+    [setPresets, updateSettings]
+  );
+
+  /** Duplizieren legt die Kopie sofort an – sie erscheint als neue Karte, bereit zum Bearbeiten. */
+  const duplicatePreset = useCallback(
+    (id: string) => {
+      const base = presetsRef.current.find((p) => p.id === id);
+      if (!base) return;
+      const copy = cloneAsNew(base);
+      setPresets((prev) => {
+        const at = prev.findIndex((p) => p.id === id);
+        const next = [...prev];
+        next.splice(at + 1, 0, copy);
+        return next;
+      });
+      updateSettings({ selectedPresetId: copy.id });
+    },
+    [setPresets, updateSettings]
   );
 
   const deletePreset = useCallback(
@@ -150,22 +213,21 @@ export function useApp() {
     [presets, setPresets, settings.selectedPresetId, updateSettings]
   );
 
-  const resetPreset = useCallback(
-    (id: string) => {
-      setPresets((prev) =>
-        prev.map((p) => {
-          if (p.id !== id || !p.builtin) return p;
-          return { ...factoryPreset(p.builtin), id: p.id };
-        })
-      );
+  /**
+   * Verschiebt ein Preset an eine neue Stelle.
+   * `toIndex` zählt ohne das verschobene Preset – so gibt die Oberfläche die
+   * Stelle genauso an, wie sie sie meint.
+   */
+  const movePreset = useCallback(
+    (id: string, toIndex: number) => {
+      setPresets((prev) => {
+        const from = prev.findIndex((p) => p.id === id);
+        if (from < 0) return prev;
+        return moveTo(prev, from, toIndex);
+      });
     },
     [setPresets]
   );
-
-  const resetAllPresets = useCallback(() => {
-    setPresets(defaultPresets());
-    updateSettings({ selectedPresetId: "preset-mp4" });
-  }, [setPresets, updateSettings]);
 
   /* ───────── Dateien ───────── */
 
@@ -189,14 +251,15 @@ export function useApp() {
         status: "checking",
         health: { state: "ok" },
         progress: 0,
+        adjustments: NO_ADJUSTMENTS,
       }));
       setItems((prev) => [...prev, ...fresh]);
 
       for (const s of accepted) {
         probeLimit(async () => {
-          let r: Awaited<ReturnType<typeof probe>>;
+          let r: Awaited<ReturnType<typeof engine.probe>>;
           try {
-            r = await probe(s);
+            r = await engine.probe(s);
           } catch {
             r = { health: { state: "broken", reason: "Die Datei konnte nicht gelesen werden." } };
           }
@@ -218,17 +281,28 @@ export function useApp() {
     [probeLimit]
   );
 
-  const addFiles = useCallback(async () => addSources(await pickFiles()), [addSources]);
+  const addFiles = useCallback(async () => addSources(await fs.pickFiles()), [addSources]);
   const addFolder = useCallback(
-    async () => addSources(await pickFolder(settings.outFolderName)),
+    async () => addSources(await fs.pickFolder(settings.outFolderName)),
     [addSources, settings.outFolderName]
   );
   const addDrop = useCallback(
-    async (dt: DataTransfer) => addSources(await collectFromDrop(dt, settings.outFolderName)),
+    async (dt: DataTransfer) => addSources(await fs.collectFromDrop(dt, settings.outFolderName)),
     [addSources, settings.outFolderName]
   );
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelected(itemsRef.current.filter((i) => i.status === "ready" && i.info).map((i) => i.id));
+  }, []);
+
+  const clearSelection = useCallback(() => setSelected([]), []);
+
   const remove = useCallback((id: string) => {
+    setSelected((prev) => prev.filter((x) => x !== id));
     setItems((prev) => {
       const gone = prev.find((i) => i.id === id);
       if (gone?.thumb) URL.revokeObjectURL(gone.thumb);
@@ -238,10 +312,11 @@ export function useApp() {
 
   const clear = useCallback(() => {
     setItems((prev) => {
-      prev.forEach((i) => {
-        if (i.status !== "converting" && i.status !== "queued" && i.thumb) URL.revokeObjectURL(i.thumb);
-      });
-      return prev.filter((i) => i.status === "converting" || i.status === "queued");
+      /* Laufende Dateien bleiben – was arbeitet, lässt sich nicht wegkehren. */
+      const kept = prev.filter((i) => i.status === "converting" || i.status === "queued");
+      for (const i of prev) if (i.thumb && !kept.includes(i)) URL.revokeObjectURL(i.thumb);
+      setSelected((sel) => sel.filter((id) => kept.some((k) => k.id === id)));
+      return kept;
     });
   }, []);
 
@@ -250,11 +325,22 @@ export function useApp() {
     [patch]
   );
 
+  /** Alle Fehler, die ein zweiter Versuch beheben kann, wieder auf „bereit". */
+  const retryFailed = useCallback(() => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.status === "failed" && !i.final
+          ? { ...i, status: "ready", progress: 0, message: undefined, repaired: false, attempted: false }
+          : i
+      )
+    );
+  }, []);
+
   /* ───────── Ziel ───────── */
 
   const chooseDestination = useCallback(async () => {
-    const dir = await chooseCustomDestination();
-    if (dir) updateSettings({ destination: "custom", customDestinationName: dir.name });
+    const name = await fs.chooseCustomDestination();
+    if (name) updateSettings({ destination: "custom", customDestinationName: name });
   }, [updateSettings]);
 
   const useCustomDestination = useCallback(() => {
@@ -262,9 +348,45 @@ export function useApp() {
   }, [settings.customDestinationName, updateSettings]);
 
   const forgetDestinations = useCallback(async () => {
-    await forgetFolders();
+    await fs.forgetFolders();
     updateSettings({ destination: "auto", customDestinationName: "" });
   }, [updateSettings]);
+
+  /* ───── Drehen · Zuschneiden · Schneiden – pro Datei, nicht pro Preset ───── */
+
+  /**
+   * Legt die Anpassungen einer Datei fest.
+   * Eine bereits fertige Datei wird wieder bereit – sonst läge ein Ergebnis
+   * herum, das nicht mehr zeigt, was die Datei ist.
+   */
+  const setAdjustments = useCallback((id: string, adj: Adjustments) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i, adjustments: adj };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  /** Dieselben Anpassungen für alle Dateien – spart Klicks bei einer Serie. */
+  const applyAdjustmentsToAll = useCallback((adj: Adjustments) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (!i.info || !i.info.video) return i;
+        const next = { ...i, adjustments: adj };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
 
   /* ───────── Konvertieren ───────── */
 
@@ -272,7 +394,10 @@ export function useApp() {
 
   const start = useCallback(async () => {
     if (running || planning) return;
-    const todo = itemsRef.current.filter((i) => i.status === "ready" && i.info);
+    const scope = selected.length ? selected : null;
+    const todo = itemsRef.current.filter(
+      (i) => i.status === "ready" && i.info && (!scope || scope.includes(i.id))
+    );
     if (!todo.length || itemsRef.current.some((i) => i.status === "checking")) return;
 
     const ac = new AbortController();
@@ -281,10 +406,27 @@ export function useApp() {
 
     let targets: Map<string, Target>;
     try {
-      targets = await planTargets(
-        todo.map((i) => i.source),
-        settings
-      );
+      const sources = todo.map((i) => i.source);
+      targets = await fs.planTargets(sources, settings);
+      /*
+       * Mehrere Dateien in den Download-Ordner kommen oft nicht an: Der Browser
+       * erlaubt Mehrfach-Downloads nur nach Rückfrage, und wer die wegklickt,
+       * verliert den Rest des Laufs – ohne Meldung. Deshalb fragt die App hier
+       * einmal nach einem Zielordner. Der Klick auf „Konvertieren" ist die
+       * Geste, die dieser Dialog verlangt.
+       */
+      const loose = [...targets.values()].filter((t) => t.kind === "download").length;
+      if (loose > 1 && settings.destination === "auto" && fs.supported) {
+        const chosen = await fs.chooseCustomDestination();
+        if (chosen) {
+          updateSettings({ destination: "custom" });
+          targets = await fs.planTargets(sources, { ...settings, destination: "custom" });
+        } else {
+          setNotice(
+            "Kein Zielordner gewählt. Die Dateien gehen einzeln in den Download-Ordner – der Browser fragt dafür nach, ob er mehrere Dateien speichern darf."
+          );
+        }
+      }
     } catch (e) {
       setPlanning(false);
       setNotice(e instanceof Error ? e.message : "Der Zielordner konnte nicht vorbereitet werden. Es wurde nichts konvertiert.");
@@ -320,8 +462,9 @@ export function useApp() {
       setOverall({ fraction, eta, completed, total: todo.length });
     };
 
-    // Smart: Mit GPU zwei Dateien parallel, sonst eine – keine Einstellung nötig.
-    const limit = createLimiter(settings.hardware === "auto" && hardware.available ? 2 : 1);
+    // Automatisch: mit Grafikkarte zwei Dateien parallel, sonst eine. Überschreibbar.
+    const automatic = settings.hardware === "auto" && hardware.available ? 2 : 1;
+    const limit = createLimiter(settings.concurrency > 0 ? settings.concurrency : automatic);
     await Promise.all(
       todo.map((item) =>
         limit(async () => {
@@ -334,13 +477,14 @@ export function useApp() {
           patch(item.id, { status: "converting", progress: 0 });
           try {
             const target: Target = targets.get(item.id) ?? { kind: "download" };
-            const res = await convert({
+            const res = await engine.convert({
               source: item.source,
               info,
               preset: current,
+              adj: item.adjustments,
               hardware: settings.hardware,
               signal: ac.signal,
-              openOutput: () => openOutput(target, baseName(item.source.name), ext, settings, item.source.handle),
+              openOutput: () => fs.open(target, item.source, ext, settings),
               onProgress: (fraction) => {
                 processed.set(item.id, fraction * dur);
                 const now = performance.now();
@@ -371,7 +515,7 @@ export function useApp() {
               });
             }
           } catch (e) {
-            if (isCanceled(e) || ac.signal.aborted) {
+            if (engine.isCanceled(e) || ac.signal.aborted) {
               patch(item.id, { status: "ready", progress: 0 });
             } else {
               processed.set(item.id, dur);
@@ -392,7 +536,7 @@ export function useApp() {
     abortRef.current = null;
     setRunning(false);
     setOverall(null);
-  }, [running, planning, settings, preset, patch, hardware.available]);
+  }, [running, planning, settings, preset, patch, hardware.available, updateSettings]);
 
   return {
     presets,
@@ -401,29 +545,38 @@ export function useApp() {
     items,
     running,
     planning,
+    /** Solange gilt: keine Einstellung lässt sich ändern. Ein Zustand, kein Flickwerk. */
+    locked: running || planning,
     overall,
     notice,
     caps,
     hardware,
     updateSettings,
     selectPreset,
-    updatePreset,
-    addPreset,
+    savePreset,
+    createPreset,
     duplicatePreset,
     deletePreset,
-    resetPreset,
-    resetAllPresets,
+    movePreset,
     addFiles,
     addFolder,
     addDrop,
     remove,
     clear,
     retry,
+    retryFailed,
+    fsSupported: fs.supported,
+    selected,
+    toggleSelect,
+    selectAll,
+    clearSelection,
     chooseDestination,
     useCustomDestination,
     forgetDestinations,
     start,
     stop,
+    setAdjustments,
+    applyAdjustmentsToAll,
     dismissNotice: () => setNotice(null),
   };
 }

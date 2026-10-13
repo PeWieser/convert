@@ -5,7 +5,7 @@ export const DEFAULT_SETTINGS: Settings = {
   hardware: "auto",
   outFolderName: "Konvertiert",
   collision: "number",
-  concurrency: 1,
+  concurrency: 0,
   appearance: "auto",
   destination: "auto",
   customDestinationName: "",

@@ -1,0 +1,25 @@
+# Abhängigkeiten
+node_modules/
+
+# Bau-Ergebnisse
+.tmp/
+dist/
+dist-electron/
+release/
+out/
+*.tsbuildinfo
+
+# Electron / Desktop
+desktop/build/
+desktop/release/
+
+# System & Editoren
+.DS_Store
+Thumbs.db
+*.log
+npm-debug.log*
+.env
+.env.local
+
+# FFmpeg-Protokolle der Zwei-Durchgang-Kodierung
+ffmpeg2pass-*.log*

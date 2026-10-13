@@ -33,7 +33,6 @@ export interface VideoSettings {
   entropy: "cabac" | "cavlc";
   twoPass: boolean;
   deinterlace: boolean;
-  rotate: 0 | 90 | 180 | 270;
   tenBit: boolean;
   hdrToSdr: boolean;
   speed: "fast" | "balanced" | "slow";
@@ -50,6 +49,34 @@ export interface AudioSettings {
   normalize: boolean;
 }
 
+/** Beschnitt in Pixeln – und zwar im Bild *nach* der Drehung, so wie die Engine es macht. */
+export interface CropRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Fakten über eine einzelne Datei.
+ *
+ * Das Preset sagt, welches Format hinten herauskommen soll. Hier steht, was mit
+ * genau *dieser* Datei los ist: sie ist schief, sie hat schwarze Ränder, sie hat
+ * zwanzig Sekunden Vorlauf. Deshalb liegt das pro Datei und nicht pro Preset.
+ */
+export interface Adjustments {
+  /** Zusätzlich zu der Drehung, die bereits in den Metadaten der Datei steht. */
+  rotate: 0 | 90 | 180 | 270;
+  crop?: CropRect;
+  /** In Sekunden. Fehlt ein Wert, gilt Anfang bzw. Ende der Datei. */
+  trim?: { start?: number; end?: number };
+  /**
+   * Erst in der Desktop-App wirksam – die Web-Engine kann keine Untertitel.
+   * Die Oberfläche zeigt dafür nichts an, solang `Capabilities.subtitles` fehlt.
+   */
+  subtitles?: { mode: "auto" | "keep" | "burn" | "none"; track?: number };
+}
+
 export interface Preset {
   id: string;
   name: string;
@@ -58,6 +85,10 @@ export interface Preset {
   container: ContainerId;
   video: VideoSettings;
   audio: AudioSettings;
+  /**
+   * Nur in der Desktop-App wirksam (FFmpeg). Die Web-Engine kann Untertitel nicht
+   * steuern – die Oberfläche fragt `Capabilities.subtitles`, bevor sie das anbietet.
+   */
   subtitles: "keep" | "burn" | "none";
   metadata: "keep" | "strip";
   fastStart: boolean;
@@ -67,6 +98,7 @@ export interface Settings {
   hardware: "auto" | "off";
   outFolderName: string;
   collision: "number" | "overwrite" | "skip";
+  /** Gleichzeitig konvertierte Dateien. 0 = automatisch (mit Grafikkarte zwei, sonst eine). */
   concurrency: number;
   appearance: "auto" | "light" | "dark";
   destination: "auto" | "custom";
@@ -132,22 +164,44 @@ export interface Item {
   repaired?: boolean;
   /** Fehler lässt sich nicht durch erneutes Versuchen beheben */
   final?: boolean;
+  /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
+  adjustments: Adjustments;
   outSize?: number;
   outPlace?: string;
   etaSeconds?: number;
 }
 
 export interface HardwareInfo {
-  /** Anzeigename der Grafikkarte */
+  /** Anzeigename der Grafikkarte – leer, wenn die Quelle ihn nicht kennt */
   gpu: string;
   vendor: "nvidia" | "amd" | "intel" | "apple" | "other" | "none";
   /** Name der Encoder-Technik, z. B. NVENC */
   encoder: string;
   available: boolean;
+  /**
+   * Woher die Erkenntnis stammt. WebGL liefert nur einen Namen, und der Browser
+   * darf ihn verdecken. Was zählt, ist die Liste der Encoder: im Web WebCodecs,
+   * auf dem Desktop `ffmpeg -encoders`.
+   */
+  source: "webgl" | "encoders" | "ffmpeg";
+  /** Der Browser verdeckt die Grafikkarte. Die App weiß es nicht, statt zu raten. */
+  hidden?: boolean;
 }
 
 export interface Capabilities {
   video: VideoCodecId[];
   audio: AudioCodecId[];
   ready: boolean;
+  /**
+   * Nachgeladene Bausteine, die nicht angekommen sind (meist: keine Verbindung).
+   * Steht hier etwas, fehlen Formate – und die Oberfläche sagt das, statt still
+   * jede Datei wegzuwerfen.
+   */
+  missing?: string[];
+  /**
+   * Kann diese Engine Untertitel beibehalten, einbrennen oder entfernen?
+   * Web (WebCodecs): nein. Desktop (FFmpeg): ja.
+   * Die Oberfläche zeigt keine Regler für Fähigkeiten, die es nicht gibt.
+   */
+  subtitles: boolean;
 }

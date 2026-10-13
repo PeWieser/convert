@@ -1,33 +1,54 @@
 import { useEffect, useRef, useState } from "react";
+import { FileInspector } from "./components/FileInspector";
 import { Footer } from "./components/Footer";
 import { PresetBar } from "./components/PresetBar";
+import { PresetGrid } from "./components/PresetGrid";
 import { PresetEditor } from "./components/PresetEditor";
 import { GearGlyph } from "./components/PresetIcon";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { Stage } from "./components/Stage";
 import { useApp } from "./hooks/useApp";
+import { plural } from "./lib/format";
+import { cloneAsNew, clonePreset } from "./lib/presets";
+import type { Preset } from "./lib/types";
+
+/** Warum ein Bedienelement gerade nicht geht. Gesperrt heißt: mit Begründung. */
+const LOCK_HINT = "Während der Konvertierung gesperrt";
 
 export default function App() {
   const app = useApp();
   const { items, running } = app;
-  const busy = running || app.planning;
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const busy = app.locked;
+  /** Geöffneter Preset-Editor: ein Entwurf und die ID des gespeicherten Presets (null = neu). */
+  const [editor, setEditor] = useState<{ original: Preset; savedId: string | null } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  /** Das Fenster mit allen Presets – immer erreichbar, nicht erst bei vielen. */
+  const [showGrid, setShowGrid] = useState(false);
   const [dragging, setDragging] = useState(false);
+  /** Geöffnete Datei – Drehen, Zuschneiden, Schneiden. */
+  const [inspecting, setInspecting] = useState<string | null>(null);
+  const inspected = inspecting ? items.find((i) => i.id === inspecting) : undefined;
+  /** Solange noch eine Datei gelesen wird, ist nichts anderes dran. */
+  const loadingCount = items.filter((i) => i.status === "checking").length;
 
   const addDropRef = useRef(app.addDrop);
   addDropRef.current = app.addDrop;
   const busyRef = useRef(busy);
   busyRef.current = busy;
 
-  /* Erscheinungsbild folgt immer dem System – keine Entscheidung nötig. */
+  /* Erscheinungsbild: System, Hell oder Dunkel – wie in den Einstellungen gewählt. */
+  const appearance = app.settings.appearance;
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", mq.matches);
+    const apply = () =>
+      document.documentElement.classList.toggle(
+        "dark",
+        appearance === "dark" || (appearance === "auto" && mq.matches)
+      );
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, []);
+  }, [appearance]);
 
   /* Fortschritt im Fenstertitel – sichtbar, auch wenn das Fenster im Hintergrund ist. */
   useEffect(() => {
@@ -80,9 +101,17 @@ export default function App() {
       const t = e.target as HTMLElement | null;
       const typing =
         !!t && (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement);
-      if (!(e.metaKey || e.ctrlKey) || typing || editingId || showSettings) return;
+      /* Esc räumt die Auswahl weg – solange kein Fenster offen ist, dem es gehört. */
+      if (e.key === "Escape" && !editor && !showSettings && !inspecting && !showGrid && app.selected.length) {
+        app.clearSelection();
+        return;
+      }
+      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings || inspecting || showGrid) return;
       const k = e.key.toLowerCase();
-      if (k === "o") {
+      if (k === "a") {
+        e.preventDefault();
+        if (!busy) app.selectAll();
+      } else if (k === "o") {
         e.preventDefault();
         if (!busy) void (e.shiftKey ? app.addFolder() : app.addFiles());
       } else if (k === "enter") {
@@ -90,14 +119,31 @@ export default function App() {
         if (!busy) void app.start();
       } else if (k === ",") {
         e.preventDefault();
-        setShowSettings(true);
+        if (!busy) setShowSettings(true);
       }
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [app, busy, editingId, showSettings]);
+  }, [app, busy, editor, showSettings, inspecting, showGrid]);
 
-  const editing = app.presets.find((p) => p.id === editingId) ?? null;
+  /* Läuft die Konvertierung los, schließt sich das Fenster von allein. */
+  useEffect(() => {
+    if (busy) setInspecting(null);
+  }, [busy]);
+
+  const openInspector = (id: string) => {
+    if (busy) return;
+    const found = items.find((i) => i.id === id);
+    if (!found || !found.info) return;
+    setInspecting(id);
+  };
+
+  const openEditor = (id: string) => {
+    const found = app.presets.find((p) => p.id === id);
+    if (!found) return;
+    app.selectPreset(id);
+    setEditor({ original: clonePreset(found), savedId: id });
+  };
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -107,8 +153,10 @@ export default function App() {
         <div className="no-drag flex justify-end">
           <button
             aria-label="Einstellungen"
+            disabled={busy}
+            title={busy ? LOCK_HINT : "Einstellungen"}
             onClick={() => setShowSettings(true)}
-            className="grid h-8 w-8 place-items-center rounded-full text-label2/80 transition hover:bg-fill hover:text-label active:scale-95"
+            className="grid h-8 w-8 place-items-center rounded-full text-label2/80 transition hover:bg-fill hover:text-label active:scale-95 disabled:pointer-events-none disabled:opacity-40"
           >
             <GearGlyph className="h-[17px] w-[17px]" />
           </button>
@@ -121,12 +169,15 @@ export default function App() {
             presets={app.presets}
             selectedId={app.preset.id}
             disabled={busy}
+            lockReason={LOCK_HINT}
+            canDelete={app.presets.length > 1}
             onSelect={app.selectPreset}
-            onEdit={(id) => {
-              app.selectPreset(id);
-              setEditingId(id);
-            }}
-            onAdd={() => setEditingId(app.addPreset())}
+            onEdit={openEditor}
+            onDuplicate={app.duplicatePreset}
+            onDelete={app.deletePreset}
+            onReorder={app.movePreset}
+            onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
+            onOpenGrid={() => setShowGrid(true)}
           />
           <Stage
             items={items}
@@ -138,6 +189,10 @@ export default function App() {
             onRemove={app.remove}
             onRetry={app.retry}
             onClear={app.clear}
+            onOpen={busy ? undefined : openInspector}
+            selected={app.selected}
+            onToggleSelect={app.toggleSelect}
+            onClearSelection={app.clearSelection}
           />
         </div>
       </main>
@@ -153,30 +208,67 @@ export default function App() {
           notice={app.notice}
           onStart={() => void app.start()}
           onStop={app.stop}
+          onRetryFailed={app.retryFailed}
           onClear={app.clear}
           onChooseDestination={() => void app.chooseDestination()}
           onUseAuto={() => app.updateSettings({ destination: "auto" })}
           onUseCustom={app.useCustomDestination}
           onDismissNotice={app.dismissNotice}
+          selected={app.selected}
+          onClearSelection={app.clearSelection}
+          fsSupported={app.fsSupported}
         />
       )}
 
-      {editing && (
+      {showGrid && (
+        <PresetGrid
+          presets={app.presets}
+          selectedId={app.preset.id}
+          disabled={busy}
+          lockReason={LOCK_HINT}
+          canDelete={app.presets.length > 1}
+          onSelect={app.selectPreset}
+          onEdit={openEditor}
+          onDuplicate={app.duplicatePreset}
+          onDelete={app.deletePreset}
+          onAdd={() => {
+            setShowGrid(false);
+            setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null });
+          }}
+          onClose={() => setShowGrid(false)}
+        />
+      )}
+
+      {editor && (
         <PresetEditor
-          key={editing.id}
-          preset={editing}
+          key={editor.original.id}
+          preset={editor.original}
+          isNew={editor.savedId === null}
           caps={app.caps}
           hardware={app.hardware}
           hwOn={app.settings.hardware === "auto"}
-          canDelete={app.presets.length > 1}
-          onChange={app.updatePreset}
-          onDuplicate={() => setEditingId(app.duplicatePreset(editing.id))}
-          onDelete={() => {
-            app.deletePreset(editing.id);
-            setEditingId(null);
+          onFinish={(p) => {
+            if (editor.savedId) app.savePreset(p);
+            else app.createPreset(p);
+            setEditor(null);
           }}
-          onReset={() => app.resetPreset(editing.id)}
-          onClose={() => setEditingId(null)}
+          onClose={() => setEditor(null)}
+        />
+      )}
+
+      {inspected?.info && (
+        <FileInspector
+          key={inspected.id}
+          item={inspected}
+          onClose={() => setInspecting(null)}
+          onFinish={(adj) => {
+            app.setAdjustments(inspected.id, adj);
+            setInspecting(null);
+          }}
+          onApplyToAll={(adj) => {
+            app.applyAdjustmentsToAll(adj);
+            setInspecting(null);
+          }}
         />
       )}
 
@@ -187,8 +279,23 @@ export default function App() {
           onChange={app.updateSettings}
           onClose={() => setShowSettings(false)}
           onForgetFolders={() => void app.forgetDestinations()}
-          onResetPresets={app.resetAllPresets}
         />
+      )}
+
+      {loadingCount > 0 && (
+        <div
+          className="anim-fade fixed inset-0 z-[80] grid place-items-center bg-canvas/55 backdrop-blur-[6px]"
+          role="alert"
+          aria-busy="true"
+        >
+          <div className="anim-sheet flex items-center gap-3.5 rounded-[16px] bg-surface px-5 py-4 shadow-pop">
+            <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-sep border-t-accent" />
+            <div>
+              <div className="text-[14px] font-medium">{plural(loadingCount, "Datei wird", "Dateien werden")} gelesen</div>
+              <div className="mt-[2px] text-[12px] text-label2">Ohne Abbrechen – gleich geht es weiter.</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {dragging && items.length > 0 && (

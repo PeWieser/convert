@@ -1,40 +1,30 @@
-import { AlertTriangle, Check, ChevronDown, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { AlertTriangle, ChevronDown, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
 import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
-import { fsaSupported } from "../lib/fsa";
-import { estimateOutputBytes } from "../lib/presets";
+import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
-import { Btn, useOutsideClick } from "./ui";
+import { Btn, Menu, MenuItem } from "./ui";
 
-function MenuItem({
-  selected,
-  title,
-  sub,
-  onClick,
-}: {
-  selected?: boolean;
-  title: string;
-  sub?: string;
-  onClick: () => void;
-}) {
-  const option = selected !== undefined;
+/**
+ * Während ein Lauf arbeitet, wechseln die Namen der gerade konvertierten Dateien
+ * durch – zwischen „x von y" links und der Restzeit rechts. Eine Zeile, drei
+ * Aussagen, kein Platzverlust.
+ */
+function CyclingNames({ names }: { names: string[] }) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (names.length < 2) return;
+    const t = setInterval(() => setIndex((i) => i + 1), 2600);
+    return () => clearInterval(t);
+  }, [names.length]);
+  if (!names.length) return <span className="min-w-0 flex-1" />;
+  const name = names[index % names.length];
   return (
-    <button
-      onClick={onClick}
-      role={option ? "menuitemradio" : "menuitem"}
-      aria-checked={option ? selected : undefined}
-      className="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors hover:bg-accent hover:text-white [&:hover_.sub]:text-white/75 [&:hover_svg]:text-white"
-    >
-      <span className="grid h-4 w-4 shrink-0 place-items-center">
-        {selected && <Check className="h-3.5 w-3.5 text-accent" strokeWidth={2.8} />}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[13.5px] font-medium leading-tight">{title}</span>
-        {sub && <span className="sub block truncate text-[11.5px] text-label2">{sub}</span>}
-      </span>
-    </button>
+    <span key={name} className="anim-fade min-w-0 flex-1 truncate px-3 text-center font-medium text-label">
+      {name}
+    </span>
   );
 }
 
@@ -60,11 +50,15 @@ export function Footer({
   notice,
   onStart,
   onStop,
+  onRetryFailed,
   onClear,
   onChooseDestination,
   onUseAuto,
   onUseCustom,
   onDismissNotice,
+  selected,
+  onClearSelection,
+  fsSupported,
 }: {
   items: Item[];
   preset: Preset;
@@ -75,28 +69,47 @@ export function Footer({
   notice: string | null;
   onStart: () => void;
   onStop: () => void;
+  /** Alle Fehler, die ein zweiter Versuch beheben kann, erneut in die Warteschlange. */
+  onRetryFailed: () => void;
   onClear: () => void;
   onChooseDestination: () => void;
   onUseAuto: () => void;
   onUseCustom: () => void;
   onDismissNotice: () => void;
+  /** Leer heißt: der Lauf gilt allen. Sonst nur den markierten Dateien. */
+  selected: string[];
+  onClearSelection: () => void;
+  /** Browser: ohne File System Access bleibt nur der Download-Ordner. */
+  fsSupported: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useOutsideClick(ref, () => setOpen(false), open);
+  const [confirmStop, setConfirmStop] = useState(false);
+  const anchorRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!confirmStop) return;
+    const t = setTimeout(() => setConfirmStop(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirmStop]);
+  useEffect(() => {
+    if (!running) setConfirmStop(false);
+  }, [running]);
 
   const ready = items.filter((i) => i.status === "ready" && i.info);
+  /* Eine Auswahl schränkt den Lauf ein – und damit jede Zahl, die ihn beschreibt. */
+  const scope = selected.length ? ready.filter((i) => selected.includes(i.id)) : ready;
   const checking = items.some((i) => i.status === "checking");
   const doneCount = items.filter((i) => i.status === "done").length;
   const failedCount = items.filter((i) => i.status === "failed").length;
   const finished = !running && items.some((i) => i.attempted) && ready.length === 0 && !checking;
-  const readyDuration = ready.reduce((s, i) => s + (i.info?.duration ?? 0), 0);
-  const readyBytes = ready.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info) : 0), 0);
+  const retryable = items.filter((i) => i.status === "failed" && !i.final).length;
+  const readyDuration = scope.reduce((s, i) => s + (i.info?.duration ?? 0), 0);
+  const readyBytes = scope.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info, i.adjustments) : 0), 0);
 
   const custom = settings.destination === "custom" && !!settings.customDestinationName;
   const anyFolderSource = items.some((i) => i.source.root);
   const autoLabel = anyFolderSource ? "Neben den Originalen" : "Downloads";
-  const label = !fsaSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
+  const label = !fsSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
 
   let status: ReactNode = null;
   if (notice) {
@@ -115,13 +128,15 @@ export function Footer({
     );
   } else if (running && overall) {
     const fraction = overall.fraction;
+    const converting = items.filter((i) => i.status === "converting").map((i) => i.source.name);
     status = (
       <div className="anim-fade" role="status">
         <div className="tnum mb-[7px] flex justify-between text-[12px] text-label2">
-          <span>
+          <span className="shrink-0">
             {Math.min(overall.completed + 1, overall.total)} von {overall.total}
           </span>
-          <span>{overall.eta ? formatRemaining(overall.eta) : "\u00a0"}</span>
+          <CyclingNames names={converting} />
+          <span className="shrink-0">{overall.eta ? formatRemaining(overall.eta) : "\u00a0"}</span>
         </div>
         <div
           className="h-[5px] overflow-hidden rounded-full bg-fill2"
@@ -150,7 +165,7 @@ export function Footer({
   } else if (ready.length) {
     status = (
       <div className="tnum truncate text-[13px] text-label2">
-        {plural(ready.length, "Datei", "Dateien")}
+        {selected.length ? `${scope.length} von ${ready.length} ausgewählt` : plural(ready.length, "Datei", "Dateien")}
         {readyDuration > 0 && ` · ${formatDuration(readyDuration)}`}
         {readyBytes > 0 && ` · ca. ${formatBytes(readyBytes)}`}
       </div>
@@ -160,10 +175,11 @@ export function Footer({
   return (
     <footer className="glass relative z-20 border-t border-sep">
       <div className="mx-auto flex h-[72px] w-full max-w-[880px] items-center gap-4 px-4 sm:px-8">
-        <div ref={ref} className="relative shrink-0">
+        <div className="relative shrink-0">
           <button
+            ref={anchorRef}
             onClick={() => setOpen((o) => !o)}
-            disabled={running || planning || !fsaSupported}
+            disabled={running || planning || !fsSupported}
             className="flex h-9 items-center gap-2 rounded-full pl-2.5 pr-2 text-[13px] font-medium transition hover:bg-fill active:scale-[0.97] disabled:hover:bg-transparent"
             aria-haspopup="menu"
             aria-expanded={open}
@@ -171,12 +187,11 @@ export function Footer({
           >
             <FolderGlyph />
             <span className="max-w-[180px] truncate">{label}</span>
-            {fsaSupported && !running && (
+            {fsSupported && !running && (
               <ChevronDown className={`h-3.5 w-3.5 text-label2 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
             )}
           </button>
-          {open && (
-            <div className="anim-pop glass absolute bottom-full left-0 z-30 mb-2 w-[290px] rounded-[14px] p-1.5 shadow-pop" role="menu">
+          <Menu open={open} onClose={() => setOpen(false)} anchor={anchorRef.current} placement="top" align="start">
               <MenuItem
                 selected={!custom}
                 title="Neben den Originalen"
@@ -204,24 +219,51 @@ export function Footer({
                   setOpen(false);
                 }}
               />
-            </div>
-          )}
+          </Menu>
         </div>
 
         <div className="min-w-0 flex-1">{status}</div>
 
         {running ? (
-          <Btn size="lg" onClick={onStop}>
-            Stoppen
-          </Btn>
+          confirmStop ? (
+            <Btn
+              size="lg"
+              variant="primary"
+              className="!bg-bad"
+              onClick={() => {
+                setConfirmStop(false);
+                onStop();
+              }}
+            >
+              Wirklich stoppen
+            </Btn>
+          ) : (
+            <Btn size="lg" onClick={() => setConfirmStop(true)}>
+              Stoppen
+            </Btn>
+          )
         ) : finished ? (
-          <Btn variant="primary" size="lg" onClick={onClear}>
-            Fertig
-          </Btn>
+          <>
+            {retryable > 0 && (
+              <Btn variant="ghost" onClick={onClear}>
+                Alle entfernen
+              </Btn>
+            )}
+            <Btn variant="primary" size="lg" onClick={retryable > 0 ? onRetryFailed : onClear}>
+              {retryable > 0 ? "Erneut versuchen" : "Fertig"}
+            </Btn>
+          </>
         ) : (
-          <Btn variant="primary" size="lg" onClick={onStart} disabled={!ready.length || checking || planning}>
-            Konvertieren
-          </Btn>
+          <>
+            {selected.length > 0 && (
+              <Btn variant="ghost" onClick={onClearSelection}>
+                Auswahl aufheben
+              </Btn>
+            )}
+            <Btn variant="primary" size="lg" onClick={onStart} disabled={!scope.length || checking || planning}>
+              {selected.length ? "Auswahl konvertieren" : "Konvertieren"}
+            </Btn>
+          </>
         )}
       </div>
     </footer>

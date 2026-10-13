@@ -6,7 +6,9 @@
  *   probe()       → Datei analysieren, Defekte erkennen, Vorschaubild
  *   convert()     → konvertieren (GPU zuerst), Defekte automatisch reparieren
  *
- * Die Windows-App ersetzt nur diese Datei (FFmpeg mit NVENC / AMF / QSV).
+ * Die UI kennt diese Datei nicht direkt: `platform.ts` beschreibt die Schnittstelle
+ * (`MediaEngine`), `webEngine` am Ende ist ihre Web-Implementierung. Die Windows-App bringt
+ * eine eigene mit (FFmpeg, NVENC / AMF / QSV) — `useApp` nimmt die passende.
  */
 import {
   ALL_FORMATS,
@@ -43,9 +45,18 @@ import type {
 } from "mediabunny";
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
-import type { OutputHandle } from "./fsa";
-import { planVideoSize, willCopyAudio, willCopyVideo } from "./presets";
-import type { AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+import type { OutputSink } from "./platform";
+import { detectHardware, withEncoderTruth } from "./hardware";
+import { estimateOutputBytes, fastStartMode, resolveJob } from "./job";
+import type { Job } from "./job";
+import type { MediaEngine } from "./platform";
+import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+
+/** `navigator.deviceMemory` kennt nur Chromium – fehlt es, rechnet die App vorsichtig. */
+function deviceMemoryGb(): number {
+  const v = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
+  return typeof v === "number" && v > 0 ? v : 4;
+}
 
 export const engineSupported: boolean =
   typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined" && typeof AudioEncoder !== "undefined";
@@ -64,32 +75,59 @@ const AUDIO_BACK: Record<string, AudioCodecId> = {
   "pcm-s16": "pcm",
 };
 
+/**
+ * Bausteine, die der Browser nicht selbst kann und die die App nachlädt. Jeder
+ * davon ist ein eigener Request – ohne Verbindung fehlt der Encoder. Früher
+ * wurde das geschluckt: Die App meldete sich bereit und warf dann jede Datei
+ * dieser Formate weg, ohne ein Wort zu sagen.
+ */
+const LAZY_ENCODERS: { codec: "aac" | "mp3" | "flac"; label: string; register: () => Promise<void> }[] = [
+  {
+    codec: "aac",
+    label: "AAC",
+    register: async () => void (await import("@mediabunny/aac-encoder")).registerAacEncoder(),
+  },
+  {
+    codec: "mp3",
+    label: "MP3",
+    register: async () => void (await import("@mediabunny/mp3-encoder")).registerMp3Encoder(),
+  },
+  {
+    codec: "flac",
+    label: "FLAC",
+    register: async () => void (await import("@mediabunny/flac-encoder")).registerFlacEncoder(),
+  },
+];
+
 export function initEngine(): Promise<Capabilities> {
   if (!capsPromise) {
     capsPromise = (async () => {
-      if (!engineSupported) return { video: [], audio: [], ready: true };
-      // Fehlende Encoder werden per WebAssembly nachgerüstet
-      try {
-        if (!(await canEncodeAudio("aac"))) (await import("@mediabunny/aac-encoder")).registerAacEncoder();
-      } catch {
-        /* ignorieren */
-      }
-      try {
-        if (!(await canEncodeAudio("mp3"))) (await import("@mediabunny/mp3-encoder")).registerMp3Encoder();
-      } catch {
-        /* ignorieren */
-      }
-      try {
-        if (!(await canEncodeAudio("flac"))) (await import("@mediabunny/flac-encoder")).registerFlacEncoder();
-      } catch {
-        /* ignorieren */
+      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false };
+      const missing: string[] = [];
+      for (const e of LAZY_ENCODERS) {
+        try {
+          if (await canEncodeAudio(e.codec)) continue;
+          await e.register();
+          if (!(await canEncodeAudio(e.codec))) missing.push(e.label);
+        } catch {
+          missing.push(e.label);
+        }
       }
       const v = (await getEncodableVideoCodecs().catch(() => [])) as string[];
       const a = (await getEncodableAudioCodecs().catch(() => [])) as string[];
+      /*
+       * Ein unvollständiges Ergebnis wird nicht eingefroren: Sonst fehlen die
+       * Bausteine für den Rest der Sitzung, auch wenn die Verbindung längst
+       * zurück ist.
+       */
+      if (missing.length) capsPromise = null;
       return {
         video: v.map((c) => VIDEO_BACK[c]).filter(Boolean),
         audio: a.map((c) => AUDIO_BACK[c]).filter(Boolean),
         ready: true,
+        // WebCodecs kann Untertitel weder einbrennen noch entfernen – die Desktop-App kann es.
+        subtitles: false,
+        missing: missing.length ? missing : undefined,
       };
     })();
   }
@@ -276,8 +314,10 @@ export interface ConvertRequest {
   source: SourceFile;
   info: MediaInfo;
   preset: Preset;
+  /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
+  adj: Adjustments;
   hardware: "auto" | "off";
-  openOutput: () => Promise<OutputHandle | null>;
+  openOutput: () => Promise<OutputSink | null>;
   onProgress: (fraction: number, processedSeconds: number) => void;
   signal: AbortSignal;
 }
@@ -302,9 +342,26 @@ export function isCanceled(e: unknown): boolean {
   return e instanceof ConversionCanceledError || (e instanceof DOMException && e.name === "AbortError");
 }
 
+/**
+ * Die Web-Implementierung der Naht aus `platform.ts`.
+ * Die Desktop-App stellt dieselbe Schnittstelle gegen FFmpeg – die Oberfläche
+ * merkt den Unterschied nicht.
+ */
+export const webEngine: MediaEngine = {
+  init: initEngine,
+  /*
+   * Eine gefundene Grafikkarte heißt noch nicht, dass beschleunigt wird:
+   * encodieren muss der Browser. Erst beides zusammen ist eine Auskunft.
+   */
+  hardware: async () => withEncoderTruth(detectHardware(), (await initEngine()).video.length),
+  probe,
+  convert,
+  isCanceled,
+};
+
 type Hw = "prefer-hardware" | "no-preference" | "prefer-software";
 
-function makeFormat(p: Preset, fastStart: false | "in-memory"): OutputFormat {
+function makeFormat(p: Preset, fastStart: false | "in-memory" | "fragmented"): OutputFormat {
   switch (p.container) {
     case "mp4":
       return new Mp4OutputFormat({ fastStart });
@@ -329,23 +386,26 @@ function makeFormat(p: Preset, fastStart: false | "in-memory"): OutputFormat {
   }
 }
 
-function buildVideo(p: Preset, info: MediaInfo, hw: Hw): ConversionVideoOptions | undefined {
+function buildVideo(job: Job, hw: Hw, forceTranscode: boolean): ConversionVideoOptions | undefined {
+  const p = job.preset;
+  const info = job.info;
   const v = p.video;
   if (v.codec === "none" || CONTAINERS[p.container].kind === "audio") return { discard: true };
   if (!info.video) return undefined;
-  if (willCopyVideo(p, info)) return {};
+  if (job.copyVideo && !forceTranscode) return {};
 
   const o: ConversionVideoOptions = { hardwareAcceleration: hw, forceTranscode: true };
   const codec = MB_VIDEO[v.codec];
   if (codec) o.codec = codec as ConversionVideoOptions["codec"];
 
-  const g = planVideoSize(v, info.video.width, info.video.height);
-  if (g.resized) {
-    o.width = g.width;
-    o.height = g.height;
-    o.fit = g.fit ?? "fill";
+  /* Reihenfolge der Engine: Drehung → Beschnitt → Skalierung. Genau so steht es im Job. */
+  if (job.adj.rotate) o.rotate = job.adj.rotate;
+  if (job.crop) o.crop = job.crop;
+  if (job.out) {
+    o.width = job.out.width;
+    o.height = job.out.height;
+    o.fit = job.out.fit ?? "fill";
   }
-  if (v.rotate) o.rotate = v.rotate;
   if (v.fps && info.video.fps > v.fps + 0.5) o.frameRate = v.fps;
   o.keyFrameInterval = Math.max(0.5, v.keyframeInterval);
   o.quality =
@@ -355,11 +415,13 @@ function buildVideo(p: Preset, info: MediaInfo, hw: Hw): ConversionVideoOptions 
   return o;
 }
 
-function buildAudio(p: Preset, info: MediaInfo): ConversionAudioOptions | undefined {
+function buildAudio(job: Job): ConversionAudioOptions | undefined {
+  const p = job.preset;
+  const info = job.info;
   const a = p.audio;
   if (a.codec === "none") return { discard: true };
   if (!info.audio) return undefined;
-  if (willCopyAudio(p, info)) return {};
+  if (job.copyAudio) return {};
 
   const o: ConversionAudioOptions = { forceTranscode: true };
   const codec = MB_AUDIO[a.codec];
@@ -424,13 +486,15 @@ async function attempt(
   const out = await req.openOutput();
   if (!out) return { status: "skipped", size: 0, place: "" };
 
+  const job = resolveJob(req.preset, req.info, req.adj);
   const input = new Input({ source: new BlobSource(req.source.file), formats: ALL_FORMATS });
   const useStream = !!out.writable;
   const target = useStream
     ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
     : new BufferTarget();
   const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
-  const fast: false | "in-memory" = wantsFast && req.source.file.size < 1_200_000_000 ? "in-memory" : false;
+  const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file.size;
+  const fast: false | "in-memory" | "fragmented" = wantsFast ? fastStartMode(expected, deviceMemoryGb()) : false;
   const output = new Output({ format: makeFormat(p, fast), target });
 
   let conversion: Conversion | null = null;
@@ -441,11 +505,18 @@ async function attempt(
 
   try {
     const options: ConversionOptions = { input, output, showWarnings: false };
-    const video = buildVideo(p, req.info, opts.hw);
-    const audio = buildAudio(p, req.info);
+    const video = buildVideo(job, opts.hw, !!opts.noCopy);
+    const audio = buildAudio(job);
     if (video) options.video = video;
     if (audio) options.audio = audio;
-    if (opts.trimEnd) options.trim = { end: opts.trimEnd };
+    /* Der Reparaturpfad kappt das Ende; der Nutzerschnitt liegt schon im Job. */
+    const trimStart = job.trim?.start;
+    const trimEnd = opts.trimEnd ?? job.trim?.end;
+    if (trimStart || trimEnd !== undefined) {
+      options.trim = {};
+      if (trimStart && trimEnd !== undefined && trimStart < trimEnd) options.trim.start = trimStart;
+      if (trimEnd !== undefined) options.trim.end = trimEnd;
+    }
     if (opts.noCopy) options.copy = false;
     if (p.metadata === "strip") options.tags = {};
 

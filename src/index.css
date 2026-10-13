@@ -272,6 +272,14 @@ button:focus {
 .anim-fade {
   animation: fade-in 0.25s ease both;
 }
+/*
+ * Wie `anim-fade`, aber ohne `both`: Nach dem Einblenden entscheidet wieder die
+ * normale Deklaration. Nur so kann `group-hover:opacity-0` den Haken wegnehmen –
+ * eine laufende Animation gewinnt sonst gegen jede Klasse.
+ */
+.anim-fade-soft {
+  animation: fade-in 0.25s ease;
+}
 .anim-sheet {
   animation: sheet-in 0.42s cubic-bezier(0.32, 0.72, 0, 1) both;
 }

@@ -1,6 +1,6 @@
-import { Check, RotateCw, X } from "lucide-react";
+import { Check, Play, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { estimateOutputBytes } from "../lib/presets";
+import { adjustmentsSummary, estimateOutputBytes } from "../lib/job";
 import { extOf, formatBytes, formatDuration, resolutionLabel } from "../lib/format";
 import { sourceCodecLabel } from "../lib/formats";
 import type { Item, Preset } from "../lib/types";
@@ -71,16 +71,27 @@ export function FileRow({
   locked = false,
   onRemove,
   onRetry,
+  onOpen,
+  selected = false,
+  onToggleSelect,
+  onClearSelection,
 }: {
   item: Item;
   preset: Preset;
   locked?: boolean;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
+  /** Doppelklick auf die Zeile: abspielen, drehen, zuschneiden, schneiden. */
+  onOpen?: (id: string) => void;
+  selected?: boolean;
+  onToggleSelect?: (id: string) => void;
+  onClearSelection?: () => void;
 }) {
   const { status, info } = item;
   const removable = !locked && status !== "converting" && status !== "queued";
-  const estimate = info && status === "ready" ? estimateOutputBytes(preset, info) : 0;
+  const estimate = info && status === "ready" ? estimateOutputBytes(preset, info, item.adjustments) : 0;
+  const adjusted = adjustmentsSummary(item.adjustments);
+  const canOpen = !!onOpen && !!info && !locked;
   const isAudio = !!info && !info.video;
   const dim = status === "queued" || status === "checking";
 
@@ -101,26 +112,54 @@ export function FileRow({
 
   return (
     <li
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          onToggleSelect?.(item.id);
+          return;
+        }
+        onClearSelection?.();
+      }}
+      onDoubleClick={canOpen ? () => onOpen!(item.id) : undefined}
+      title={canOpen ? "Doppelklick: bearbeiten · ⌘/Strg-Klick: auswählen" : undefined}
       className={cn(
-        "anim-row group relative flex min-h-[64px] items-center gap-3.5 px-4 py-2.5 transition-opacity duration-300",
+        "anim-row group relative flex min-h-[64px] items-center gap-3.5 px-4 py-2.5 transition-[opacity,background-color] duration-300",
+        canOpen && "cursor-default",
+        selected && "bg-accent/[0.07]",
         dim && "opacity-60",
         "[&+&]:before:absolute [&+&]:before:left-[86px] [&+&]:before:right-0 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-sep"
       )}
     >
-      <div className="relative grid h-[42px] w-[56px] shrink-0 place-items-center overflow-hidden rounded-[9px] bg-fill">
+      {selected && (
+        <span className="anim-fade absolute left-3 top-2 z-10 grid h-[18px] w-[18px] place-items-center rounded-full bg-accent text-white shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
+          <Check className="h-3 w-3" strokeWidth={3} />
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            onToggleSelect?.(item.id);
+            return;
+          }
+          if (canOpen) onOpen!(item.id);
+        }}
+        disabled={!canOpen}
+        aria-label={canOpen ? `${item.source.name} abspielen und bearbeiten` : item.source.name}
+        className="group/thumb relative grid h-[42px] w-[56px] shrink-0 place-items-center overflow-hidden rounded-[9px] bg-fill transition-[filter,transform] duration-200 hover:brightness-[0.92] active:scale-95 disabled:pointer-events-none"
+      >
         {item.thumb ? (
           <img src={item.thumb} alt="" className="h-full w-full object-cover" draggable={false} />
         ) : (
           <Glyph audio={isAudio} />
         )}
-        {status === "done" && (
-          <span className="anim-fade absolute inset-0 grid place-items-center bg-black/40">
-            <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-ok">
-              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-            </span>
+        {canOpen && (
+          <span className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+            <Play className="ml-[1px] h-4 w-4 text-white" fill="currentColor" strokeWidth={0} />
           </span>
         )}
-      </div>
+      </button>
 
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-medium leading-tight" title={item.source.name}>
@@ -130,13 +169,22 @@ export function FileRow({
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-1.5">
+        {adjusted && (
+          <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
+            {adjusted}
+          </span>
+        )}
         {status === "ready" && estimate > 0 && (
           <span className="tnum text-[12.5px] text-label2 transition-opacity group-hover:opacity-0">{formatBytes(estimate)}</span>
         )}
         {status === "converting" && <Ring value={item.progress} />}
         {status === "failed" && !item.final && !locked && (
           <button
-            onClick={() => onRetry(item.id)}
+            onClick={(e) => {
+              e.stopPropagation();
+              onRetry(item.id);
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
             aria-label="Erneut versuchen"
             className="grid h-7 w-7 place-items-center rounded-full text-accent transition hover:bg-accent/10 active:scale-90"
           >
@@ -145,9 +193,27 @@ export function FileRow({
         )}
       </div>
 
+      {/*
+        Deckungsgleich mit dem Lösch-X: gleiche Stelle, gleiche Größe. Sobald die
+        Zeile berührt wird, erscheint das X – der Haken tritt dafür zurück.
+        Kein Haken ohne geschriebene Datei: „Übersprungen" ist kein Erfolg.
+      */}
+      {status === "done" && item.outSize !== undefined && (
+        <span
+          className="anim-fade-soft absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok opacity-100 shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-opacity duration-200 group-hover:opacity-0"
+          aria-label="Fertig"
+        >
+          <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+        </span>
+      )}
+
       {removable && (
         <button
-          onClick={() => onRemove(item.id)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onRemove(item.id);
+          }}
+          onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`${item.source.name} entfernen`}
           className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 opacity-0 transition hover:bg-fill2 hover:text-label focus-visible:opacity-100 active:scale-90 group-hover:opacity-100"
           style={status === "failed" && !item.final ? { right: 48 } : undefined}

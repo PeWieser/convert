@@ -1,6 +1,6 @@
 import { CONTAINERS } from "./formats";
-import { planVideoSize } from "./presets";
-import type { HardwareInfo, Preset } from "./types";
+import { NO_ADJUSTMENTS } from "./job";
+import type { Adjustments, HardwareInfo, Preset } from "./types";
 
 /**
  * Baut den FFmpeg-Befehl, den die Windows-Version später ausführt.
@@ -56,27 +56,73 @@ function crfFor(codec: string, q: number): number {
   }
 }
 
-const quote = (s: string) => `"${s}"`;
+/**
+ * Anführungszeichen nur dort, wo die Shell den Text sonst auseinandernehmen
+ * würde. Umlaute brauchen sie nicht, Leerzeichen und `&` schon.
+ */
+export function shellQuote(s: string): string {
+  return /[\s"'`$\\<>(){}[\]*?|&;!#~]/.test(s) ? `"${s.replace(/(["\\$`])/g, "\\$1")}"` : s;
+}
 
-export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boolean, input = "Quelle.mkv"): string {
+/**
+ * Im Filtergraph heißt ein Pfad anders als auf der Befehlszeile: `:` trennt dort
+ * Filterargumente, `\\` ist das Fluchtzeichen. Ohne diese Übersetzung bricht das
+ * Einbrennen von Untertiteln an jedem Windows-Pfad.
+ */
+function filterPath(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\\'");
+}
+
+/**
+ * Die Wahrheit des Desktop-Befehls: eine Liste von Aufrufen, jeder ein Array aus
+ * Argumenten. Kein Shell-String – `spawn` bekommt genau dieses Array, damit ein
+ * Dateiname mit Leerzeichen oder `&` weder ein Fehler noch ein Einbruch ist.
+ * Zwei Aufrufe stehen hier nur, wenn das Preset zwei Durchgänge verlangt.
+ */
+export function buildFfmpegArgs(
+  p: Preset,
+  hw: HardwareInfo,
+  hwEnabled: boolean,
+  input = "Quelle.mkv",
+  adj: Adjustments = NO_ADJUSTMENTS,
+  opts: {
+    /** Wohin der erste Durchgang seine verworfenen Bytes schreibt: NUL oder /dev/null. */
+    nullDevice?: string;
+    /** Der echte Zielpfad. Fehlt er, steht der Platzhalter der Vorschau da. */
+    output?: string;
+  } = {}
+): string[][] {
   const v = p.video;
   const a = p.audio;
   const c = CONTAINERS[p.container];
   const useHw = hwEnabled && hw.available;
-  const out = `Ziel.${c.ext}`;
+  const out = opts.output ?? `Ziel.${c.ext}`;
 
   const head: string[] = ["ffmpeg", "-hide_banner", "-y"];
   if (useHw) head.push("-hwaccel", "auto");
-  head.push("-i", quote(input));
-  head.push("-map", "0:v?", "-map", "0:a?");
-  if (c.kind === "video" && p.subtitles === "keep" && p.container !== "ts") head.push("-map", "0:s?");
+  /* Schnitt als Eingabe-Option: sucht schnell und bleibt beim Neukodieren genau. */
+  if (adj.trim?.start) head.push("-ss", String(adj.trim.start));
+  if (adj.trim?.end) head.push("-to", String(adj.trim.end));
+  head.push("-i", input);
+  /*
+   * Genau eine Bild- und eine Tonspur, die erste jeder Art. `0:v?` ohne Index
+   * mappte früher ALLE Videospuren – mit einer globalen Filterkette davor bricht
+   * der Befehl bei Dateien mit zwei Bildspuren (Befund P2-11). Wer explizit
+   * mappt, schaltet die Automatik aus; `-vn` wird damit überflüssig.
+   */
+  if (c.kind === "audio" || v.codec === "none") {
+    head.push("-map", "0:a:0?");
+  } else {
+    head.push("-map", "0:v:0?", "-map", "0:a:0?");
+    if (p.subtitles === "keep" && p.container !== "ts") head.push("-map", "0:s?");
+  }
 
   const video: string[] = [];
   let family: Family = "sw";
   let secondPass: string[] | null = null;
 
   if (c.kind === "audio" || v.codec === "none") {
-    video.push("-vn");
+    /* nichts zu tun – es ist gar keine Bildspur gemappt */
   } else if (v.codec === "copy") {
     video.push("-c:v", "copy");
   } else {
@@ -91,9 +137,11 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
       filters.push(
         "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv"
       );
-    if (v.rotate === 90) filters.push("transpose=1");
-    if (v.rotate === 180) filters.push("hflip,vflip");
-    if (v.rotate === 270) filters.push("transpose=2");
+    /* Dieselbe Reihenfolge wie in der Web-Engine: Drehen → Beschneiden → Skalieren. */
+    if (adj.rotate === 90) filters.push("transpose=1");
+    if (adj.rotate === 180) filters.push("hflip,vflip");
+    if (adj.rotate === 270) filters.push("transpose=2");
+    if (adj.crop) filters.push(`crop=${adj.crop.width}:${adj.crop.height}:${adj.crop.left}:${adj.crop.top}`);
     const mw = v.maxWidth;
     const mh = v.maxHeight;
     if (mw || mh) {
@@ -110,8 +158,8 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
       } else if (mh) filters.push(`scale=-2:'min(${mh},ih)'`);
       else filters.push(`scale='min(${mw},iw)':-2`);
     }
-    if (p.subtitles === "burn") filters.push(`subtitles=${quote(input)}`);
-    if (filters.length) video.push("-vf", quote(filters.join(",")));
+    if (p.subtitles === "burn") filters.push(`subtitles=${filterPath(input)}`);
+    if (filters.length) video.push("-vf", filters.join(","));
 
     // Profil, Level
     if ((v.codec === "h264" || v.codec === "h265") && family !== "vt") {
@@ -162,7 +210,7 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
       }
     }
     video.push("-pix_fmt", v.tenBit ? (family === "sw" ? "yuv420p10le" : "p010le") : "yuv420p");
-    video.push("-force_key_frames", quote(`expr:gte(t,n_forced*${v.keyframeInterval})`));
+    video.push("-force_key_frames", `expr:gte(t,n_forced*${v.keyframeInterval})`);
     if (v.fps) video.push("-fpsmax", String(v.fps));
   }
 
@@ -174,7 +222,7 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
     if (a.codec !== "flac" && a.codec !== "pcm") audio.push("-b:a", `${a.bitrate}k`);
     if (a.sampleRate) audio.push("-ar", String(a.sampleRate));
     if (a.channels) audio.push("-ac", String(a.channels));
-    if (a.normalize) audio.push("-af", quote("loudnorm=I=-16:TP=-1.5:LRA=11"));
+    if (a.normalize) audio.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
   }
 
   const rest: string[] = [];
@@ -187,11 +235,27 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
   if (p.fastStart && (p.container === "mp4" || p.container === "mov")) rest.push("-movflags", "+faststart");
 
   if (secondPass) {
-    const first = [...head, ...video, "-pass", "1", "-an", "-f", "null", "NUL"].join(" ");
-    const final = [...head, ...video, ...secondPass, ...audio, ...rest, quote(out)].join(" ");
-    return `${first}\n${final}`;
+    /* Erster Durchgang: Statistik sammeln und das Bild verwerfen. Zweiter: schreiben. */
+    return [
+      [...head, ...video, "-pass", "1", "-an", "-f", "null", opts.nullDevice ?? "NUL"],
+      [...head, ...video, ...secondPass, ...audio, ...rest, out],
+    ];
   }
-  return [...head, ...video, ...audio, ...rest, quote(out)].join(" ");
+  return [[...head, ...video, ...audio, ...rest, out]];
 }
 
-export { planVideoSize };
+/**
+ * Für die Vorschau im Preset-Editor: dieselben Argumente, lesbar verbunden.
+ * Die Wahrheit bleibt das Array – die Vorschau ist nur seine Darstellung.
+ */
+export function buildFfmpegCommand(
+  p: Preset,
+  hw: HardwareInfo,
+  hwEnabled: boolean,
+  input = "Quelle.mkv",
+  adj: Adjustments = NO_ADJUSTMENTS
+): string {
+  return buildFfmpegArgs(p, hw, hwEnabled, input, adj)
+    .map((call) => call.map(shellQuote).join(" "))
+    .join("\n");
+}
