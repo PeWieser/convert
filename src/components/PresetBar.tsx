@@ -1,4 +1,4 @@
-import { Copy, Plus, Settings2, Trash2 } from "lucide-react";
+import { Copy, LayoutGrid, Plus, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { slotShift } from "../lib/order";
@@ -28,6 +28,7 @@ export function PresetBar({
   onDuplicate,
   onDelete,
   onAdd,
+  onOpenGrid,
   onReorder,
 }: {
   presets: Preset[];
@@ -42,6 +43,8 @@ export function PresetBar({
   onDuplicate: (id: string) => void;
   onDelete: (id: string) => void;
   onAdd: () => void;
+  /** Öffnet das Fenster mit allen Presets – auch denjenigen, die hier keinen Platz haben. */
+  onOpenGrid: () => void;
   /** Verschiebt ein Preset an eine neue Stelle in der Reihenfolge. */
   onReorder: (id: string, toIndex: number) => void;
 }) {
@@ -207,7 +210,8 @@ export function PresetBar({
   };
 
   return (
-    <div className="-mx-3 flex gap-3 overflow-x-auto px-3 pb-5 pt-3" role="radiogroup" aria-label="Format">
+    <div className="-mx-3 flex items-stretch gap-2 pr-3">
+      <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-3 pb-5 pt-3" role="radiogroup" aria-label="Format">
       {presets.map((p, index) => {
         const selected = p.id === selectedId;
         const menuOpen = menu?.id === p.id;
@@ -386,6 +390,21 @@ export function PresetBar({
         className="grid w-[66px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
       >
         <Plus className="h-5 w-5" strokeWidth={1.8} />
+      </button>
+      </div>
+
+      {/*
+        Steht außerhalb der Leiste und scrollt nicht mit: Alle Presets sind immer
+        einen Klick entfernt, auch wenn die Leiste längst überläuft.
+      */}
+      <button
+        onClick={onOpenGrid}
+        disabled={disabled}
+        title={disabled ? lockReason : "Alle Presets"}
+        aria-label="Alle Presets"
+        className="mb-5 mt-3 grid w-[54px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
+      >
+        <LayoutGrid className="h-[18px] w-[18px]" strokeWidth={1.8} />
       </button>
     </div>
   );

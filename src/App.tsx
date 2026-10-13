@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { FileInspector } from "./components/FileInspector";
 import { Footer } from "./components/Footer";
 import { PresetBar } from "./components/PresetBar";
+import { PresetGrid } from "./components/PresetGrid";
 import { PresetEditor } from "./components/PresetEditor";
 import { GearGlyph } from "./components/PresetIcon";
 import { SettingsSheet } from "./components/SettingsSheet";
@@ -21,6 +22,8 @@ export default function App() {
   /** Geöffneter Preset-Editor: ein Entwurf und die ID des gespeicherten Presets (null = neu). */
   const [editor, setEditor] = useState<{ original: Preset; savedId: string | null } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  /** Das Fenster mit allen Presets – immer erreichbar, nicht erst bei vielen. */
+  const [showGrid, setShowGrid] = useState(false);
   const [dragging, setDragging] = useState(false);
   /** Geöffnete Datei – Drehen, Zuschneiden, Schneiden. */
   const [inspecting, setInspecting] = useState<string | null>(null);
@@ -99,11 +102,11 @@ export default function App() {
       const typing =
         !!t && (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement);
       /* Esc räumt die Auswahl weg – solange kein Fenster offen ist, dem es gehört. */
-      if (e.key === "Escape" && !editor && !showSettings && !inspecting && app.selected.length) {
+      if (e.key === "Escape" && !editor && !showSettings && !inspecting && !showGrid && app.selected.length) {
         app.clearSelection();
         return;
       }
-      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings || inspecting) return;
+      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings || inspecting || showGrid) return;
       const k = e.key.toLowerCase();
       if (k === "a") {
         e.preventDefault();
@@ -121,7 +124,7 @@ export default function App() {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [app, busy, editor, showSettings, inspecting]);
+  }, [app, busy, editor, showSettings, inspecting, showGrid]);
 
   /* Läuft die Konvertierung los, schließt sich das Fenster von allein. */
   useEffect(() => {
@@ -174,6 +177,7 @@ export default function App() {
             onDelete={app.deletePreset}
             onReorder={app.movePreset}
             onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
+            onOpenGrid={() => setShowGrid(true)}
           />
           <Stage
             items={items}
@@ -213,6 +217,25 @@ export default function App() {
           selected={app.selected}
           onClearSelection={app.clearSelection}
           fsSupported={app.fsSupported}
+        />
+      )}
+
+      {showGrid && (
+        <PresetGrid
+          presets={app.presets}
+          selectedId={app.preset.id}
+          disabled={busy}
+          lockReason={LOCK_HINT}
+          canDelete={app.presets.length > 1}
+          onSelect={app.selectPreset}
+          onEdit={openEditor}
+          onDuplicate={app.duplicatePreset}
+          onDelete={app.deletePreset}
+          onAdd={() => {
+            setShowGrid(false);
+            setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null });
+          }}
+          onClose={() => setShowGrid(false)}
         />
       )}
 
