@@ -162,6 +162,7 @@ export function FileRow({
         {status === "failed" && !item.final && !locked && (
           <button
             onClick={() => onRetry(item.id)}
+            onDoubleClick={(e) => e.stopPropagation()}
             aria-label="Erneut versuchen"
             className="grid h-7 w-7 place-items-center rounded-full text-accent transition hover:bg-accent/10 active:scale-90"
           >
@@ -173,6 +174,7 @@ export function FileRow({
       {removable && (
         <button
           onClick={() => onRemove(item.id)}
+          onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`${item.source.name} entfernen`}
           className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 opacity-0 transition hover:bg-fill2 hover:text-label focus-visible:opacity-100 active:scale-90 group-hover:opacity-100"
           style={status === "failed" && !item.final ? { right: 48 } : undefined}

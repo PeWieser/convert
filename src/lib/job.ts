@@ -131,8 +131,13 @@ export function resolveJob(preset: Preset, info: MediaInfo, adj: Adjustments = N
 export function adjustmentsSummary(adj: Adjustments): string {
   const parts: string[] = [];
   if (adj.rotate) parts.push(`${adj.rotate}° gedreht`);
-  if (adj.crop) parts.push(`${adj.crop.width} × ${adj.crop.height}`);
+  if (adj.crop) parts.push("beschnitten");
   if (adj.trim?.start || adj.trim?.end) parts.push("gekürzt");
+  /* Erst in der Desktop-App setzbar – aber sichtbar muss es sein, sobald es das ist. */
+  const sub = adj.subtitles?.mode;
+  if (sub === "burn") parts.push("Untertitel eingebrannt");
+  else if (sub === "none") parts.push("Untertitel entfernt");
+  else if (sub === "keep") parts.push("Untertitel behalten");
   return parts.join(" · ");
 }
 
