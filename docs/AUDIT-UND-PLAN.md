@@ -671,8 +671,16 @@ Oberfläche ist:
   Ordnungsgewinn: nicht weniger Regler, sondern **keine irrelevanten**.
 - **`Zurücksetzen` im Editor ist weg.** (Der globale Reset in den Einstellungen bleibt —
   er ist die Notausstieg-Luke, nicht Teil der Bearbeitung.)
-- **Fußzeile: `Abbrechen` · `Fertig` unten links.** `Fertig` speichert, `Abbrechen` nicht.
-  Rechts steht bei Änderungen „Ungespeicherte Änderungen".
+- **Fußzeile: `Abbrechen` · `Fertig` unten rechts.** `Fertig` speichert, `Abbrechen` nicht.
+- **Fester Rahmen** (680 × 680 px, auf kleinen Fenstern gedeckelt): Die Größe bleibt
+  ruhig, wenn die Kategorie wechselt. Nur der Inhalt scrollt.
+- **Änderungs-Haken pro Wert** (iTunes-Muster) statt einer Sammel-Meldung und statt
+  einer Rückfrage beim Schließen: Jeder der 32 Werte, der vom gespeicherten Stand
+  abweicht, trägt einen kleinen **grünen Haken**. Beim Überfahren wird er zu einem
+  **orangen Undo-Symbol**, ein Klick stellt genau diesen Wert zurück — nicht das Preset.
+  `Abbrechen` bleibt der grobe Weg, der Haken der feine.
+  Die Auflösungs-Zeile richtet sich nach der *Stufe*, nicht nach Breite/Höhe,
+  damit eine geänderte Breite nicht zwei Haken meldet.
 - **Der Regler-Knopf auf der Preset-Karte ist weg, dafür drei Punkte.** Menü:
   `Einstellungen · Duplizieren · Löschen`. Löschen wandert aus dem Editor hierher —
   es betrifft die Karte, nicht den Entwurf. Bestätigung in zwei Schritten,

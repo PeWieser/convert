@@ -1,4 +1,4 @@
-import { Check, ChevronsUpDown } from "lucide-react";
+import { Check, ChevronsUpDown, RotateCcw } from "lucide-react";
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, RefObject } from "react";
@@ -71,11 +71,17 @@ export function Row({
   sub,
   children,
   className,
+  changed,
+  onRevert,
 }: {
   label: ReactNode;
   sub?: ReactNode;
   children?: ReactNode;
   className?: string;
+  /** Wert weicht vom gespeicherten Stand ab – zeigt den Haken. */
+  changed?: boolean;
+  /** Setzt genau diesen Wert zurück. */
+  onRevert?: () => void;
 }) {
   return (
     <div className={cn("flex min-h-[46px] items-center justify-between gap-4 px-4 py-2", className)}>
@@ -83,8 +89,40 @@ export function Row({
         <div className="text-[14px]">{label}</div>
         {sub && <div className="text-[12px] leading-snug text-label2">{sub}</div>}
       </div>
-      <div className="flex shrink-0 items-center">{children}</div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {changed && onRevert && (
+          <RevertMark onRevert={onRevert} label={typeof label === "string" ? label : "Wert"} />
+        )}
+        {children}
+      </div>
     </div>
+  );
+}
+
+/**
+ * Änderungs-Marker, wie iTunes ihn hatte: grüner Haken, solange der Wert abweicht.
+ * Beim Überfahren wird er zu Undo in Orange, ein Klick stellt den Wert zurück.
+ */
+export function RevertMark({ onRevert, label = "Wert" }: { onRevert: () => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onRevert}
+      aria-label={`${label} zurücksetzen`}
+      title={`${label} zurücksetzen`}
+      className="group/revert anim-fade grid h-6 w-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-fill active:scale-90"
+    >
+      <span className="relative grid h-3.5 w-3.5 place-items-center">
+        <Check
+          className="absolute h-3.5 w-3.5 text-ok transition-opacity duration-150 group-hover/revert:opacity-0"
+          strokeWidth={3}
+        />
+        <RotateCcw
+          className="absolute h-3.5 w-3.5 text-warn opacity-0 transition-opacity duration-150 group-hover/revert:opacity-100"
+          strokeWidth={2.4}
+        />
+      </span>
+    </button>
   );
 }
 
@@ -320,27 +358,21 @@ export function TextField({
 export function Sheet({
   title,
   onClose,
-  onCloseRequest,
   children,
   width = 560,
+  height,
 }: {
   title: string;
-  /** Schließt das Sheet tatsächlich. */
   onClose: () => void;
-  /**
-   * Was bei Esc oder Klick auf den Hintergrund passieren soll. Fehlt es, wird direkt
-   * geschlossen. Ein Entwurf mit ungespeicherten Änderungen hakt hier nach.
-   */
-  onCloseRequest?: () => void;
   children: ReactNode;
   width?: number;
+  /** Feste Höhe – der Rahmen bleibt ruhig, auch wenn der Inhalt wechselt. */
+  height?: number;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
-  const requestRef = useRef(onCloseRequest);
-  requestRef.current = onCloseRequest;
-  const requestClose = () => (requestRef.current ? requestRef.current() : closeRef.current());
+  const requestClose = () => closeRef.current();
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -389,7 +421,7 @@ export function Sheet({
     >
       <div
         className="anim-sheet relative flex max-h-full w-full flex-col overflow-hidden rounded-[20px] bg-canvas shadow-pop outline-none"
-        style={{ maxWidth: width }}
+        style={{ maxWidth: width, height: height ? `min(${height}px, calc(100vh - 40px))` : undefined }}
         ref={panelRef}
         role="dialog"
         aria-modal="true"

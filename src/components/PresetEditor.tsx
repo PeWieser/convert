@@ -25,7 +25,7 @@ import type {
 } from "../lib/types";
 import { cn } from "../utils/cn";
 import { PRESET_ICON_IDS, PresetIcon } from "./PresetIcon";
-import { Btn, Group, NumberField, Row, Segmented, Select, Sheet, Slider, Switch } from "./ui";
+import { Btn, Group, NumberField, RevertMark, Row, Segmented, Select, Sheet, Slider, Switch } from "./ui";
 
 const RES_PRESETS = ["2160", "1440", "1080", "720", "480", "360"];
 
@@ -48,6 +48,27 @@ const AUDIO_BITRATES = [64, 96, 128, 160, 192, 256, 320];
 
 /** Kategorien des Editors. Was nichts bewirken kann, erscheint gar nicht erst. */
 type SectionId = "format" | "video" | "bild" | "ton" | "experten" | "befehl";
+
+/**
+ * Pfad zu einem einzelnen Wert im Preset. Alle diese Werte sind primitiv,
+ * deshalb reicht `!==` für den Vergleich mit dem gespeicherten Stand.
+ */
+type Field =
+  | "name"
+  | "icon"
+  | "container"
+  | "fastStart"
+  | "metadata"
+  | "subtitles"
+  | `video.${keyof VideoSettings}`
+  | `audio.${keyof AudioSettings}`;
+
+function readField(p: Preset, f: Field): string | number | boolean {
+  const dot = f.indexOf(".");
+  if (dot < 0) return (p as unknown as Record<string, string | number | boolean>)[f];
+  const group = f.slice(0, dot) as "video" | "audio";
+  return (p[group] as unknown as Record<string, string | number | boolean>)[f.slice(dot + 1)];
+}
 
 export function PresetEditor({
   preset: original,
@@ -73,8 +94,6 @@ export function PresetEditor({
   const [draft, setDraft] = useState<Preset>(original);
   /** Der Rest der Komponente arbeitet auf dem Entwurf. */
   const preset = draft;
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(original), [draft, original]);
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [copied, setCopied] = useState(false);
   const [section, setSection] = useState<SectionId>("format");
 
@@ -94,7 +113,30 @@ export function PresetEditor({
   const setV = (patch: Partial<VideoSettings>) => setDraft((d) => ({ ...d, video: { ...d.video, ...patch } }));
   const setA = (patch: Partial<AudioSettings>) => setDraft((d) => ({ ...d, audio: { ...d.audio, ...patch } }));
 
-  const requestClose = () => (dirty ? setConfirmDiscard(true) : onClose());
+  /**
+   * Ein Wert weicht ab? Dann zeigt die Zeile den Haken – und ein Klick darauf
+   * stellt genau diesen Wert zurück, nicht das ganze Preset.
+   */
+  const field = (...fields: Field[]) => ({
+    changed: fields.some((f) => readField(draft, f) !== readField(original, f)),
+    onRevert: () =>
+      setDraft((d) => {
+        let next = d;
+        for (const f of fields) {
+          const dot = f.indexOf(".");
+          if (dot >= 0) {
+            if (f.startsWith("video.")) next = { ...next, video: { ...next.video, [f.slice(6)]: readField(original, f) } };
+            else next = { ...next, audio: { ...next.audio, [f.slice(6)]: readField(original, f) } };
+          } else if (f === "container") {
+            // Der Container zieht die Codecs nach sich – zurück über denselben Weg wie hin.
+            next = withContainer(next, original.container);
+          } else {
+            next = { ...next, [f]: readField(original, f) };
+          }
+        }
+        return next;
+      }),
+  });
 
   const sections = useMemo(() => {
     const list: { id: SectionId; label: string; icon: ReactNode }[] = [
@@ -143,12 +185,21 @@ export function PresetEditor({
   ];
   const levelOptions = LEVELS.map((l) => ({ value: l, label: l === "auto" ? "Automatisch" : l }));
   const res = resId(v);
+  /**
+   * Die Auswahl steuert zwei Werte, zeigt aber nur die Stufe. Der Haken richtet sich
+   * deshalb nach der Stufe – sonst meldet „Auflösung" eine Änderung, die nur die
+   * Breite darunter betrifft, und die hätte ihren eigenen Haken.
+   */
+  const resolutionField = {
+    changed: res !== resId(original.video),
+    onRevert: field("video.maxWidth", "video.maxHeight").onRevert,
+  };
 
   /* ───────── Kategorien ───────── */
 
   const formatSection = (
     <Group>
-      <Row label="Format">
+      <Row label="Format" {...field("container")}>
         <Select<ContainerId>
           value={preset.container}
           groups={containerGroups}
@@ -156,11 +207,11 @@ export function PresetEditor({
         />
       </Row>
       {(preset.container === "mp4" || preset.container === "mov") && (
-        <Row label="Schnellstart" sub="Datei ist sofort abspielbar, auch beim Streamen">
+        <Row label="Schnellstart" sub="Datei ist sofort abspielbar, auch beim Streamen" {...field("fastStart")}>
           <Switch checked={preset.fastStart} onChange={(f) => set({ fastStart: f })} />
         </Row>
       )}
-      <Row label="Metadaten">
+      <Row label="Metadaten" {...field("metadata")}>
         <Select
           value={preset.metadata}
           options={[
@@ -171,7 +222,7 @@ export function PresetEditor({
         />
       </Row>
       {isVideoContainer && caps.subtitles && (
-        <Row label="Untertitel">
+        <Row label="Untertitel" {...field("subtitles")}>
           <Select
             value={preset.subtitles}
             options={[
@@ -183,7 +234,7 @@ export function PresetEditor({
           />
         </Row>
       )}
-      <Row label="Symbol">
+      <Row label="Symbol" {...field("icon")}>
         <div className="flex gap-1">
           {PRESET_ICON_IDS.map((id) => (
             <button
@@ -211,12 +262,12 @@ export function PresetEditor({
           : undefined
       }
     >
-      <Row label="Codec">
+      <Row label="Codec" {...field("video.codec")}>
         <Select<VideoCodecId> value={v.codec} options={videoCodecOptions} onChange={(k) => setV({ codec: k })} />
       </Row>
       {encodingVideo && (
         <>
-          <Row label="Ratensteuerung">
+          <Row label="Ratensteuerung" {...field("video.rateControl")}>
             <Segmented
               value={v.rateControl}
               onChange={(r) => setV({ rateControl: r })}
@@ -230,7 +281,12 @@ export function PresetEditor({
           {v.rateControl === "quality" ? (
             <div className="px-4 py-3">
               <div className="flex items-baseline justify-between">
-                <span className="text-[14px]">Qualität</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="text-[14px]">Qualität</span>
+                  {field("video.quality").changed && (
+                    <RevertMark onRevert={field("video.quality").onRevert} label="Qualität" />
+                  )}
+                </span>
                 <span className="tnum text-[14px] text-label2">{qualityLabel(v.quality)}</span>
               </div>
               <Slider value={v.quality} step={1} onChange={(q) => setV({ quality: q })} className="mt-1" />
@@ -242,7 +298,7 @@ export function PresetEditor({
             </div>
           ) : (
             <>
-              <Row label="Bitrate">
+              <Row label="Bitrate" {...field("video.bitrate")}>
                 <NumberField
                   value={v.bitrate}
                   min={64}
@@ -252,7 +308,7 @@ export function PresetEditor({
                 />
               </Row>
               {v.rateControl === "vbr" && (
-                <Row label="Maximale Bitrate" sub="0 lässt dem Encoder freie Hand">
+                <Row label="Maximale Bitrate" sub="0 lässt dem Encoder freie Hand" {...field("video.maxBitrate")}>
                   <NumberField
                     value={v.maxBitrate}
                     min={0}
@@ -262,13 +318,13 @@ export function PresetEditor({
                   />
                 </Row>
               )}
-              <Row label="Zwei Durchgänge" sub="Dauert doppelt so lang, verteilt die Bits gleichmäßiger">
+              <Row label="Zwei Durchgänge" sub="Dauert doppelt so lang, verteilt die Bits gleichmäßiger" {...field("video.twoPass")}>
                 <Switch checked={v.twoPass} onChange={(t) => setV({ twoPass: t })} />
               </Row>
             </>
           )}
           {isH264 && (
-            <Row label="Profil">
+            <Row label="Profil" {...field("video.profile")}>
               <Select
                 value={v.profile}
                 options={[
@@ -284,11 +340,11 @@ export function PresetEditor({
             </Row>
           )}
           {isH26x && (
-            <Row label="Level">
+            <Row label="Level" {...field("video.level")}>
               <Select value={v.level} options={levelOptions} onChange={(l) => setV({ level: l })} />
             </Row>
           )}
-          <Row label="Encoder-Tempo" sub="Langsam bedeutet kleinere Dateien bei gleicher Qualität">
+          <Row label="Encoder-Tempo" sub="Langsam bedeutet kleinere Dateien bei gleicher Qualität" {...field("video.speed")}>
             <Select
               value={v.speed}
               options={[
@@ -307,7 +363,7 @@ export function PresetEditor({
   const bildSection = (
     <>
       <Group title="Größe">
-        <Row label="Auflösung">
+        <Row label="Auflösung" {...resolutionField}>
           <Select
             value={res}
             options={[
@@ -329,16 +385,16 @@ export function PresetEditor({
         </Row>
         {res === "custom" && (
           <>
-            <Row label="Breite (max.)">
+            <Row label="Breite (max.)" {...field("video.maxWidth")}>
               <NumberField value={v.maxWidth} min={0} max={8192} suffix="px" onChange={(n) => setV({ maxWidth: Math.round(n) })} />
             </Row>
-            <Row label="Höhe (max.)">
+            <Row label="Höhe (max.)" {...field("video.maxHeight")}>
               <NumberField value={v.maxHeight} min={0} max={8192} suffix="px" onChange={(n) => setV({ maxHeight: Math.round(n) })} />
             </Row>
           </>
         )}
         {v.maxWidth > 0 && v.maxHeight > 0 && (
-          <Row label="Skalierung" sub="Was passiert, wenn das Seitenverhältnis nicht passt">
+          <Row label="Skalierung" sub="Was passiert, wenn das Seitenverhältnis nicht passt" {...field("video.scaling")}>
             <Select
               value={v.scaling}
               options={[
@@ -351,7 +407,7 @@ export function PresetEditor({
             />
           </Row>
         )}
-        <Row label="Bildrate (max.)">
+        <Row label="Bildrate (max.)" {...field("video.fps")}>
           <Select
             value={v.fps}
             options={[
@@ -367,7 +423,7 @@ export function PresetEditor({
         </Row>
       </Group>
       <Group title="Bildverarbeitung">
-        <Row label="Drehen">
+        <Row label="Drehen" {...field("video.rotate")}>
           <Select
             value={v.rotate}
             options={[
@@ -379,13 +435,13 @@ export function PresetEditor({
             onChange={(r) => setV({ rotate: r })}
           />
         </Row>
-        <Row label="Zeilensprung entfernen" sub="Für Material aus alten Kameras und TV-Aufnahmen">
+        <Row label="Zeilensprung entfernen" sub="Für Material aus alten Kameras und TV-Aufnahmen" {...field("video.deinterlace")}>
           <Switch checked={v.deinterlace} onChange={(d) => setV({ deinterlace: d })} />
         </Row>
-        <Row label="10 Bit Farbtiefe">
+        <Row label="10 Bit Farbtiefe" {...field("video.tenBit")}>
           <Switch checked={v.tenBit} onChange={(t) => setV({ tenBit: t })} />
         </Row>
-        <Row label="HDR zu SDR umrechnen" sub="Für Bildschirme ohne HDR">
+        <Row label="HDR zu SDR umrechnen" sub="Für Bildschirme ohne HDR" {...field("video.hdrToSdr")}>
           <Switch checked={v.hdrToSdr} onChange={(h) => setV({ hdrToSdr: h })} />
         </Row>
       </Group>
@@ -402,20 +458,20 @@ export function PresetEditor({
             : undefined
       }
     >
-      <Row label="Codec">
+      <Row label="Codec" {...field("audio.codec")}>
         <Select<AudioCodecId> value={a.codec} options={audioCodecOptions} onChange={(k) => setA({ codec: k })} />
       </Row>
       {encodesAudio && (
         <>
           {lossyAudio && (
-            <Row label="Qualität">
+            <Row label="Qualität" {...field("audio.bitrate")}>
               <Select value={a.bitrate} options={bitrateOptions} onChange={(n) => setA({ bitrate: n })} />
             </Row>
           )}
-          <Row label="Abtastrate">
+          <Row label="Abtastrate" {...field("audio.sampleRate")}>
             <Select value={a.sampleRate} options={SAMPLE_RATES} onChange={(n) => setA({ sampleRate: n })} />
           </Row>
-          <Row label="Kanäle">
+          <Row label="Kanäle" {...field("audio.channels")}>
             <Select
               value={a.channels}
               options={[
@@ -427,7 +483,7 @@ export function PresetEditor({
               onChange={(n) => setA({ channels: n })}
             />
           </Row>
-          <Row label="Lautstärke angleichen" sub="Alle Dateien etwa gleich laut">
+          <Row label="Lautstärke angleichen" sub="Alle Dateien etwa gleich laut" {...field("audio.normalize")}>
             <Switch checked={a.normalize} onChange={(n) => setA({ normalize: n })} />
           </Row>
         </>
@@ -437,7 +493,7 @@ export function PresetEditor({
 
   const expertenSection = (
     <Group title="Kodierung" footer="Diese Werte lässt man normalerweise, wie sie sind.">
-      <Row label="Keyframe-Abstand">
+      <Row label="Keyframe-Abstand" {...field("video.keyframeInterval")}>
         <NumberField
           value={v.keyframeInterval}
           min={0.5}
@@ -448,16 +504,16 @@ export function PresetEditor({
         />
       </Row>
       {isH26x && (
-        <Row label="B-Frames">
+        <Row label="B-Frames" {...field("video.bframes")}>
           <NumberField value={v.bframes} min={0} max={4} width={64} onChange={(n) => setV({ bframes: Math.round(n) })} />
         </Row>
       )}
       {isH264 && (
         <>
-          <Row label="Referenzbilder">
+          <Row label="Referenzbilder" {...field("video.refs")}>
             <NumberField value={v.refs} min={1} max={16} width={64} onChange={(n) => setV({ refs: Math.round(n) })} />
           </Row>
-          <Row label="Entropiekodierung">
+          <Row label="Entropiekodierung" {...field("video.entropy")}>
             <Select
               value={v.entropy}
               options={[
@@ -512,12 +568,7 @@ export function PresetEditor({
               : befehlSection;
 
   return (
-    <Sheet
-      title={isNew ? "Neues Preset" : dirty ? `${original.name} bearbeiten, ungespeichert` : `${original.name} bearbeiten`}
-      onClose={onClose}
-      onCloseRequest={requestClose}
-      width={680}
-    >
+    <Sheet title={isNew ? "Neues Preset" : `${original.name} bearbeiten`} onClose={onClose} width={680} height={680}>
       <header className="px-6 pb-4 pt-6">
         <div className="flex items-center gap-4">
           <PresetIcon icon={preset.icon} size={44} />
@@ -534,6 +585,7 @@ export function PresetEditor({
             aria-label="Name des Presets"
             className="-mx-2 min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-[20px] font-semibold tracking-tight transition placeholder:text-label3 hover:bg-fill focus:bg-fill"
           />
+          {field("name").changed && <RevertMark onRevert={field("name").onRevert} label="Name" />}
         </div>
       </header>
 
@@ -563,45 +615,14 @@ export function PresetEditor({
         <div className="min-w-0 flex-1 space-y-5 overflow-y-auto px-6 py-4">{content}</div>
       </div>
 
-      <footer className="flex items-center gap-2 border-t border-sep px-6 py-3">
-        <Btn variant="secondary" onClick={requestClose}>
+      <footer className="flex items-center justify-end gap-2 border-t border-sep px-6 py-3">
+        <Btn variant="secondary" onClick={onClose}>
           Abbrechen
         </Btn>
         <Btn variant="primary" onClick={() => onFinish(draft)}>
           Fertig
         </Btn>
-        <span
-          className={cn(
-            "ml-auto text-[12px] transition-opacity duration-200",
-            dirty ? "text-warn opacity-100" : "opacity-0"
-          )}
-          role="status"
-        >
-          Ungespeicherte Änderungen
-        </span>
       </footer>
-
-      {confirmDiscard && (
-        <div className="anim-fade absolute inset-0 z-20 grid place-items-center rounded-[20px] bg-canvas/75 backdrop-blur-[3px]">
-          <div className="anim-pop w-[340px] rounded-[18px] bg-surface p-5 text-center shadow-pop">
-            <p className="text-[15px] font-semibold tracking-tight">Änderungen verwerfen?</p>
-            <p className="mt-1.5 text-[13px] leading-snug text-label2">
-              {isNew ? "Das neue Preset wird nicht angelegt." : `„${original.name}" bleibt unverändert.`}
-            </p>
-            <div className="mt-4 flex justify-center gap-1.5">
-              <Btn variant="ghost" onClick={() => setConfirmDiscard(false)}>
-                Weiter bearbeiten
-              </Btn>
-              <Btn variant="primary" onClick={() => onFinish(draft)}>
-                Speichern
-              </Btn>
-              <Btn variant="danger" onClick={onClose}>
-                Verwerfen
-              </Btn>
-            </div>
-          </div>
-        </div>
-      )}
     </Sheet>
   );
 }
