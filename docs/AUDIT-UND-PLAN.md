@@ -655,7 +655,35 @@ Die vier offenen Fragen sind beantwortet. Damit ist der Plan verbindlich:
 | **Untertitel im Web** | Untertitel **nur** in der Desktop-App | Die Untertitel-Zeile verschwindet im Web vollständig aus dem Preset-Editor. Das Feld `Preset.subtitles` bleibt im Modell (Desktop), die Engine-Fähigkeit wird über `Capabilities.subtitles` abgefragt. `keep`/`none` via `ConversionOptions.tracks` entfällt damit — im Web gilt der Mediabunny-Standard. |
 | **Reihenfolge Electron** | Erst Web-UX (Phase 1–4), dann Electron | Phase 5 bleibt am Ende. Der Plattform-Seam (`job.ts`, `MediaEngine`, `PlatformFS`) wird trotzdem in Phase 2/3 sauber angelegt — als Vorbereitung, nicht als Vorgriff. |
 
-**Arbeitsreihenfolge:** Phase 0 → 1 → 2 → 3 → 4 → 5.
+**Arbeitsreihenfolge:** Phase 0 → 1 → **4a (vorgezogen)** → 2 → 3 → 4b → 5.
+
+### Nachtrag: Preset-Aufräumarbeit (vorgezogen aus Phase 4)
+
+Auf Wunsch vor Phase 2 erledigt, weil der Preset-Editor die am häufigsten benutzte
+Oberfläche ist:
+
+- **„Einfach | Profi" ist weg.** Der Schalter hatte zwei getrennte JSX-Bäume zur Folge
+  (563 Zeilen) und zwei Antworten auf dieselbe Frage. Ersetzt durch **Kategorien** mit
+  linker Navigation: `Format · Video · Bild · Ton · Experten · Befehl`.
+- **Kategorien erscheinen nur, wenn sie etwas bewirken können.** Audio-Container →
+  `Format · Ton · Befehl`. Videocodec „Nicht neu kodieren" → die Kategorien `Bild` und
+  `Experten` fallen weg, dafür erklärt ein Hinweistext, warum. Das ist der eigentliche
+  Ordnungsgewinn: nicht weniger Regler, sondern **keine irrelevanten**.
+- **`Zurücksetzen` im Editor ist weg.** (Der globale Reset in den Einstellungen bleibt —
+  er ist die Notausstieg-Luke, nicht Teil der Bearbeitung.)
+- **Fußzeile: `Abbrechen` · `Fertig` unten links.** `Fertig` speichert, `Abbrechen` nicht.
+  Rechts steht bei Änderungen „Ungespeicherte Änderungen".
+- **Der Regler-Knopf auf der Preset-Karte ist weg, dafür drei Punkte.** Menü:
+  `Einstellungen · Duplizieren · Löschen`. Löschen wandert aus dem Editor hierher —
+  es betrifft die Karte, nicht den Entwurf. Bestätigung in zwei Schritten,
+  das letzte Preset ist geschützt.
+- Beide Auflösungen (Auswahl *und* Breite/Höhe-Felder) sind zu **einem** Bedienelement
+  zusammengeführt: `Auflösung` mit „Eigene Größe" als einem von acht Werten.
+
+Technisch dabei entstanden und ab jetzt wiederverwendbar:
+`Menu` (rendert in ein Portal und richtet sich am Auslöser aus — der Preset-Rail scrollt
+horizontal, ein normales absolutes Menü wäre abgeschnitten worden) und `MenuItem`
+(zuvor privat im Footer). `SlidersGlyph` wurde durch `DotsGlyph` ersetzt.
 
 ---
 

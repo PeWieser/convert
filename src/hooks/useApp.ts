@@ -13,7 +13,7 @@ import {
 } from "../lib/fsa";
 import type { Target } from "../lib/fsa";
 import { detectHardware } from "../lib/hardware";
-import { BASE_AUDIO, BASE_VIDEO, defaultPresets, normalizePreset } from "../lib/presets";
+import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
 import type { Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
@@ -151,6 +151,23 @@ export function useApp() {
       setPresets((prev) => [...prev, np]);
       updateSettings({ selectedPresetId: np.id });
       return np.id;
+    },
+    [setPresets, updateSettings]
+  );
+
+  /** Duplizieren legt die Kopie sofort an – sie erscheint als neue Karte, bereit zum Bearbeiten. */
+  const duplicatePreset = useCallback(
+    (id: string) => {
+      const base = presetsRef.current.find((p) => p.id === id);
+      if (!base) return;
+      const copy = cloneAsNew(base);
+      setPresets((prev) => {
+        const at = prev.findIndex((p) => p.id === id);
+        const next = [...prev];
+        next.splice(at + 1, 0, copy);
+        return next;
+      });
+      updateSettings({ selectedPresetId: copy.id });
     },
     [setPresets, updateSettings]
   );
@@ -426,6 +443,7 @@ export function useApp() {
     selectPreset,
     savePreset,
     createPreset,
+    duplicatePreset,
     deletePreset,
     resetAllPresets,
     addFiles,

@@ -24,8 +24,11 @@ und zwei Renderer machen daraus entweder `ConversionOptions` oder ein FFmpeg-Arg
 
 ## Bedienung
 
-- **Preset** = was hinten rauskommen soll (Format, Codec, Qualität). Änderungen sind ein
-  **Entwurf** und werden erst mit `Speichern` dauerhaft — `Verwerfen` nimmt sie zurück.
+- **Preset** = was hinten rauskommen soll (Format, Codec, Qualität). Der Editor gliedert
+  sich in **Kategorien** — `Format · Video · Bild · Ton · Experten · Befehl` — und zeigt
+  nur, was beim gewählten Format überhaupt etwas bewirkt. Änderungen sind ein **Entwurf**:
+  `Fertig` speichert, `Abbrechen` nicht. Duplizieren und Löschen sitzen im Menü
+  der Preset-Karte (drei Punkte).
 - **Datei** = was mit *dieser einen* Datei ist (Drehen, Zuschneiden, Trimmen, Untertitel).
   Doppelklick auf eine Zeile öffnet den Datei-Inspektor mit Player.
 - **Während der Konvertierung ist alles gesperrt** — mit sichtbarem Grund.
@@ -92,7 +95,10 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
       Untertitel-Regler im Web entfernt
 - [ ] **Phase 2** — Datei-Inspektor: Player per Doppelklick, Drehen, Zuschneiden, Trimmen
 - [ ] **Phase 3** — ein Job-Modell, zwei Renderer (`lib/job.ts`)
-- [ ] **Phase 4** — Menüs neu: Sektions-Navigation statt endlosem Scroll
+- [x] **Phase 4a** — Preset-Editor neu: Kategorien mit Seitennavigation statt
+      „Einfach | Profi", `Abbrechen`/`Fertig` unten links, drei Punkte mit Menü
+      (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
+- [ ] **Phase 4b** — Einstellungen gliedern, Preset-Verwaltung bei vielen Einträgen
 - [ ] **Phase 5** — Windows-App: Electron + FFmpeg
 
 ## Lizenzen

@@ -144,18 +144,13 @@ export function GearGlyph({ className }: { className?: string }) {
   );
 }
 
-/* Regler-Glyphe (SF „slider.horizontal.3“) für „Preset anpassen“. */
-export function SlidersGlyph({ className }: { className?: string }) {
-  const line = { fill: "none", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" } as const;
+/* Drei Punkte (SF „ellipsis“) – öffnet das Menü eines Presets. */
+export function DotsGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 24 24" className={className} aria-hidden focusable="false">
-      <path d="M4 7h16M4 12h16M4 17h16" {...line} opacity={0.45} />
-      <circle cx="9" cy="7" r="2.15" fill="currentColor" />
-      <circle cx="9" cy="7" r="0.85" fill="var(--surface)" />
-      <circle cx="15.5" cy="12" r="2.15" fill="currentColor" />
-      <circle cx="15.5" cy="12" r="0.85" fill="var(--surface)" />
-      <circle cx="8" cy="17" r="2.15" fill="currentColor" />
-      <circle cx="8" cy="17" r="0.85" fill="var(--surface)" />
+      <circle cx="5.5" cy="12" r="1.75" fill="currentColor" />
+      <circle cx="12" cy="12" r="1.75" fill="currentColor" />
+      <circle cx="18.5" cy="12" r="1.75" fill="currentColor" />
     </svg>
   );
 }

@@ -1,5 +1,6 @@
-import { ChevronsUpDown } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { Check, ChevronsUpDown } from "lucide-react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { ButtonHTMLAttributes, CSSProperties, ReactNode, RefObject } from "react";
 import { cn } from "../utils/cn";
 
@@ -401,13 +402,143 @@ export function Sheet({
   );
 }
 
-export function useOutsideClick(ref: RefObject<HTMLElement | null>, onOutside: () => void, active: boolean) {
+/* ───────────── Menüs ───────────── */
+
+export function MenuItem({
+  selected,
+  icon,
+  title,
+  sub,
+  danger,
+  disabled,
+  onClick,
+}: {
+  /** Wenn gesetzt, wird der Eintrag zur Option mit Häkchen. */
+  selected?: boolean;
+  /** Symbol links – nur bei Aktionen, Optionen tragen das Häkchen. */
+  icon?: ReactNode;
+  title: string;
+  sub?: string;
+  danger?: boolean;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
+  const option = selected !== undefined;
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      role={option ? "menuitemradio" : "menuitem"}
+      aria-checked={option ? selected : undefined}
+      className={cn(
+        "flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors disabled:pointer-events-none disabled:opacity-35",
+        danger
+          ? "text-bad hover:bg-bad hover:text-white [&:hover_.sub]:text-white/75 [&:hover_svg]:text-white"
+          : "hover:bg-accent hover:text-white [&:hover_.sub]:text-white/75 [&:hover_svg]:text-white"
+      )}
+    >
+      <span className="grid h-4 w-4 shrink-0 place-items-center">
+        {option ? selected && <Check className="h-3.5 w-3.5 text-accent" strokeWidth={2.8} /> : icon}
+      </span>
+      <span className="min-w-0">
+        <span className="block truncate text-[13.5px] font-medium leading-tight">{title}</span>
+        {sub && <span className="sub block truncate text-[11.5px] text-label2">{sub}</span>}
+      </span>
+    </button>
+  );
+}
+
+/**
+ * Kontextmenü. Rendert in ein Portal und richtet sich am `anchor` aus –
+ * dadurch schneidet kein scrollender Vorfahr etwas ab.
+ */
+export function Menu({
+  open,
+  onClose,
+  anchor,
+  placement = "bottom",
+  align = "end",
+  width = 240,
+  children,
+}: {
+  open: boolean;
+  onClose: () => void;
+  /** Element, an dem das Menü hängt. Klicks darauf schließen es nicht doppelt. */
+  anchor: HTMLElement | null;
+  placement?: "bottom" | "top";
+  align?: "start" | "end";
+  width?: number;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const anchorRef = useRef<HTMLElement | null>(anchor);
+  anchorRef.current = anchor;
+  useOutsideClick(ref, onClose, open, anchorRef);
+
+  useLayoutEffect(() => {
+    if (!open || !anchor) return;
+    const place = () => {
+      const a = anchor.getBoundingClientRect();
+      const h = ref.current?.offsetHeight ?? 0;
+      const gap = 6;
+      const edge = 8;
+      const vw = window.innerWidth;
+      const vh = window.innerHeight;
+      let left = align === "end" ? a.right - width : a.left;
+      left = Math.min(Math.max(edge, left), Math.max(edge, vw - width - edge));
+      let top = placement === "bottom" ? a.bottom + gap : a.top - gap - h;
+      if (top + h > vh - edge) top = Math.max(edge, vh - h - edge);
+      if (top < edge) top = edge;
+      setPos({ top, left });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [open, anchor, placement, align, width]);
+
+  if (!open || !anchor) return null;
+  return createPortal(
+    <div
+      ref={ref}
+      role="menu"
+      className="anim-pop glass fixed z-[60] rounded-[14px] p-1.5 shadow-pop"
+      style={{
+        width,
+        top: pos?.top ?? -9999,
+        left: pos?.left ?? -9999,
+        visibility: pos ? "visible" : "hidden",
+        transformOrigin: placement === "bottom" ? (align === "end" ? "top right" : "top left") : align === "end" ? "bottom right" : "bottom left",
+      }}
+      /* Portale leiten Klicks durch den React-Baum – die Karte darunter darf nichts abbekommen. */
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      {children}
+    </div>,
+    document.body
+  );
+}
+
+export function useOutsideClick(
+  ref: RefObject<HTMLElement | null>,
+  onOutside: () => void,
+  active: boolean,
+  /** Zusätzliches Element, das als „innen" zählt – z. B. der Knopf, der das Menü öffnet. */
+  ignore?: RefObject<HTMLElement | null>
+) {
   const cb = useRef(onOutside);
   cb.current = onOutside;
   useEffect(() => {
     if (!active) return;
     const down = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) cb.current();
+      if (ref.current?.contains(e.target as Node)) return;
+      if (ignore?.current?.contains(e.target as Node)) return;
+      cb.current();
     };
     const key = (e: KeyboardEvent) => e.key === "Escape" && cb.current();
     document.addEventListener("mousedown", down);
@@ -416,5 +547,5 @@ export function useOutsideClick(ref: RefObject<HTMLElement | null>, onOutside: (
       document.removeEventListener("mousedown", down);
       window.removeEventListener("keydown", key);
     };
-  }, [ref, active]);
+  }, [ref, active, ignore]);
 }

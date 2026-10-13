@@ -140,8 +140,11 @@ export default function App() {
             selectedId={app.preset.id}
             disabled={busy}
             lockReason={LOCK_HINT}
+            canDelete={app.presets.length > 1}
             onSelect={app.selectPreset}
             onEdit={openEditor}
+            onDuplicate={app.duplicatePreset}
+            onDelete={app.deletePreset}
             onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
           />
           <Stage
@@ -186,15 +189,9 @@ export default function App() {
           caps={app.caps}
           hardware={app.hardware}
           hwOn={app.settings.hardware === "auto"}
-          canDelete={editor.savedId !== null && app.presets.length > 1}
-          onSave={(p) => {
+          onFinish={(p) => {
             if (editor.savedId) app.savePreset(p);
             else app.createPreset(p);
-            setEditor(null);
-          }}
-          onDuplicate={(current) => setEditor({ original: cloneAsNew(current), savedId: null })}
-          onDelete={() => {
-            if (editor.savedId) app.deletePreset(editor.savedId);
             setEditor(null);
           }}
           onClose={() => setEditor(null)}

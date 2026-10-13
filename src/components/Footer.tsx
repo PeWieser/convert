@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, ChevronDown, X } from "lucide-react";
+import { AlertTriangle, ChevronDown, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
@@ -6,37 +6,7 @@ import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/for
 import { fsaSupported } from "../lib/fsa";
 import { estimateOutputBytes } from "../lib/presets";
 import type { Item, Preset, Settings } from "../lib/types";
-import { Btn, useOutsideClick } from "./ui";
-
-function MenuItem({
-  selected,
-  title,
-  sub,
-  onClick,
-}: {
-  selected?: boolean;
-  title: string;
-  sub?: string;
-  onClick: () => void;
-}) {
-  const option = selected !== undefined;
-  return (
-    <button
-      onClick={onClick}
-      role={option ? "menuitemradio" : "menuitem"}
-      aria-checked={option ? selected : undefined}
-      className="flex w-full items-center gap-2.5 rounded-[10px] px-2.5 py-2 text-left transition-colors hover:bg-accent hover:text-white [&:hover_.sub]:text-white/75 [&:hover_svg]:text-white"
-    >
-      <span className="grid h-4 w-4 shrink-0 place-items-center">
-        {selected && <Check className="h-3.5 w-3.5 text-accent" strokeWidth={2.8} />}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-[13.5px] font-medium leading-tight">{title}</span>
-        {sub && <span className="sub block truncate text-[11.5px] text-label2">{sub}</span>}
-      </span>
-    </button>
-  );
-}
+import { Btn, Menu, MenuItem } from "./ui";
 
 function FolderGlyph() {
   return (
@@ -86,8 +56,7 @@ export function Footer({
 }) {
   const [open, setOpen] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useOutsideClick(ref, () => setOpen(false), open);
+  const anchorRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!confirmStop) return;
@@ -174,8 +143,9 @@ export function Footer({
   return (
     <footer className="glass relative z-20 border-t border-sep">
       <div className="mx-auto flex h-[72px] w-full max-w-[880px] items-center gap-4 px-4 sm:px-8">
-        <div ref={ref} className="relative shrink-0">
+        <div className="relative shrink-0">
           <button
+            ref={anchorRef}
             onClick={() => setOpen((o) => !o)}
             disabled={running || planning || !fsaSupported}
             className="flex h-9 items-center gap-2 rounded-full pl-2.5 pr-2 text-[13px] font-medium transition hover:bg-fill active:scale-[0.97] disabled:hover:bg-transparent"
@@ -189,8 +159,7 @@ export function Footer({
               <ChevronDown className={`h-3.5 w-3.5 text-label2 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
             )}
           </button>
-          {open && (
-            <div className="anim-pop glass absolute bottom-full left-0 z-30 mb-2 w-[290px] rounded-[14px] p-1.5 shadow-pop" role="menu">
+          <Menu open={open} onClose={() => setOpen(false)} anchor={anchorRef.current} placement="top" align="start">
               <MenuItem
                 selected={!custom}
                 title="Neben den Originalen"
@@ -218,8 +187,7 @@ export function Footer({
                   setOpen(false);
                 }}
               />
-            </div>
-          )}
+          </Menu>
         </div>
 
         <div className="min-w-0 flex-1">{status}</div>
