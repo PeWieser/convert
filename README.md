@@ -128,7 +128,9 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
       (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
 - [x] **Phase 4b (teilweise)** — Preset-Verwaltung: Umsortieren per Ziehen, Auswahl-Konvertieren.
       Offen bleibt der Grid-Picker ab etwa sechs Einträgen
-- [ ] **Phase 5** — Windows-App: Electron + FFmpeg
+- [ ] **Phase 5** — Windows-App: Electron + FFmpeg. Bauplan in
+      [`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md), Installer-CI in
+      [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)
 
 ## Lizenzen
 

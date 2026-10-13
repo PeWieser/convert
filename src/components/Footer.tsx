@@ -8,6 +8,27 @@ import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
 import { Btn, Menu, MenuItem } from "./ui";
 
+/**
+ * Während ein Lauf arbeitet, wechseln die Namen der gerade konvertierten Dateien
+ * durch – zwischen „x von y" links und der Restzeit rechts. Eine Zeile, drei
+ * Aussagen, kein Platzverlust.
+ */
+function CyclingNames({ names }: { names: string[] }) {
+  const [index, setIndex] = useState(0);
+  useEffect(() => {
+    if (names.length < 2) return;
+    const t = setInterval(() => setIndex((i) => i + 1), 2600);
+    return () => clearInterval(t);
+  }, [names.length]);
+  if (!names.length) return <span className="min-w-0 flex-1" />;
+  const name = names[index % names.length];
+  return (
+    <span key={name} className="anim-fade min-w-0 flex-1 truncate px-3 text-center font-medium text-label">
+      {name}
+    </span>
+  );
+}
+
 function FolderGlyph() {
   return (
     <svg viewBox="0 0 24 24" className="h-4 w-4 text-accent" aria-hidden>
@@ -105,13 +126,15 @@ export function Footer({
     );
   } else if (running && overall) {
     const fraction = overall.fraction;
+    const converting = items.filter((i) => i.status === "converting").map((i) => i.source.name);
     status = (
       <div className="anim-fade" role="status">
         <div className="tnum mb-[7px] flex justify-between text-[12px] text-label2">
-          <span>
+          <span className="shrink-0">
             {Math.min(overall.completed + 1, overall.total)} von {overall.total}
           </span>
-          <span>{overall.eta ? formatRemaining(overall.eta) : "\u00a0"}</span>
+          <CyclingNames names={converting} />
+          <span className="shrink-0">{overall.eta ? formatRemaining(overall.eta) : "\u00a0"}</span>
         </div>
         <div
           className="h-[5px] overflow-hidden rounded-full bg-fill2"

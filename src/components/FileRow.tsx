@@ -154,18 +154,10 @@ export function FileRow({
         ) : (
           <Glyph audio={isAudio} />
         )}
-        {status === "done" ? (
-          <span className="anim-fade absolute inset-0 grid place-items-center bg-black/40">
-            <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-ok">
-              <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
-            </span>
+        {canOpen && (
+          <span className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+            <Play className="ml-[1px] h-4 w-4 text-white" fill="currentColor" strokeWidth={0} />
           </span>
-        ) : (
-          canOpen && (
-            <span className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
-              <Play className="ml-[1px] h-4 w-4 text-white" fill="currentColor" strokeWidth={0} />
-            </span>
-          )
         )}
       </button>
 
@@ -177,6 +169,14 @@ export function FileRow({
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-1.5">
+        {status === "done" && (
+          <span
+            className="anim-fade grid h-[22px] w-[22px] place-items-center rounded-full bg-ok shadow-[0_1px_2px_rgba(0,0,0,0.18)]"
+            aria-label="Fertig"
+          >
+            <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
+          </span>
+        )}
         {adjusted && (
           <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
             {adjusted}

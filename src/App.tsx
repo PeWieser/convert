@@ -7,6 +7,7 @@ import { GearGlyph } from "./components/PresetIcon";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { Stage } from "./components/Stage";
 import { useApp } from "./hooks/useApp";
+import { plural } from "./lib/format";
 import { cloneAsNew, clonePreset } from "./lib/presets";
 import type { Preset } from "./lib/types";
 
@@ -24,6 +25,8 @@ export default function App() {
   /** Geöffnete Datei – Drehen, Zuschneiden, Schneiden. */
   const [inspecting, setInspecting] = useState<string | null>(null);
   const inspected = inspecting ? items.find((i) => i.id === inspecting) : undefined;
+  /** Solange noch eine Datei gelesen wird, ist nichts anderes dran. */
+  const loadingCount = items.filter((i) => i.status === "checking").length;
 
   const addDropRef = useRef(app.addDrop);
   addDropRef.current = app.addDrop;
@@ -253,6 +256,22 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onForgetFolders={() => void app.forgetDestinations()}
         />
+      )}
+
+      {loadingCount > 0 && (
+        <div
+          className="anim-fade fixed inset-0 z-[80] grid place-items-center bg-canvas/55 backdrop-blur-[6px]"
+          role="alert"
+          aria-busy="true"
+        >
+          <div className="anim-sheet flex items-center gap-3.5 rounded-[16px] bg-surface px-5 py-4 shadow-pop">
+            <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-sep border-t-accent" />
+            <div>
+              <div className="text-[14px] font-medium">{plural(loadingCount, "Datei wird", "Dateien werden")} gelesen</div>
+              <div className="mt-[2px] text-[12px] text-label2">Ohne Abbrechen – gleich geht es weiter.</div>
+            </div>
+          </div>
+        </div>
       )}
 
       {dragging && items.length > 0 && (

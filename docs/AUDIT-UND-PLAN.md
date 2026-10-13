@@ -825,6 +825,32 @@ Offen bleibt die Entdeckbarkeit: Der Weg führt über einen Tooltip und das READ
 nicht über ein sichtbares Bedienelement. Ein Kontextmenü auf der Zeile wäre der
 sichtbare Weg; das ist bewusst gespart, bis klar ist, ob die Auswahl im Alltag trägt.
 
+### Nachtrag: Lauf sichtbar, Auswahl körperlich, Desktop geplant
+
+- **Der Fertig-Haken sitzt rechts.** Er lag als Overlay auf der Vorschau links und
+  konkurrierte dort mit dem Auswahl-Häkchen. Jetzt steht er in der rechten Spalte,
+  wo auch Fortschritt und Schätzung wohnen — der Zustand einer Datei gehört an
+  ein Ende der Zeile, nicht über ihr Bild.
+- **Die ausgewählte Preset-Karte ist ein Körper.** Volles Blau mit Licht von oben
+  und Schatten nach unten, weiße Schrift, weißer Ring um das Icon. Die elfprozentige
+  Tönung davor war zu schüchtern, um „hier wird konvertiert" zu sagen.
+- **Das Springen beim Einsortieren war eine Transition zu viel.** Beim Einsortieren
+  wechseln DOM-Platz und Transform im selben Zug; die Klassen-Transition animierte
+  den Transform-Rest sichtbar rückwärts. Ein Frame ohne Transitionen beim Einsortieren
+  beendet das. Die Karte gleitet vorher in ihre Lücke, danach steht sie.
+- **Dateien laden hinter einem eigenen Fenster.** Solange etwas gelesen wird, liegt
+  ein nicht schließbares Overlay über der App: Spinner, Zahl, ein Satz. Ein Zustand,
+  in dem nichts anderes geht, soll nicht aussehen wie ein Zustand, in dem man klicken kann.
+- **Während ein Lauf arbeitet, laufen die Dateinamen durch.** In der Footer-Zeile
+  wechseln die Namen der gerade konvertierten Dateien zwischen „x von y" links und
+  der Restzeit rechts. Der Lauf ist damit auch lesbar, wenn das Fenster schmal ist.
+- **Phase 5 ist geplant, nicht nur benannt.** `docs/DESKTOP-PLAN.md` beschreibt Fenster
+  ohne Windows-Optik mit eigenen, leicht runden Kanten, die Titelleiste aus der
+  bestehenden Kopfzeile (die Klassen `drag`/`no-drag` liegen seit Phase 0 bereit),
+  den Taskleisten-Fortschritt, FFmpeg-Erkennung vor Download statt Bündelung, und die
+  Reihenfolge der Umsetzung. Das Workflow `.github/workflows/desktop.yml` baut den
+  NSIS-Installer auf `windows-latest` — bewusst ohne FFmpeg im Artefakt.
+
 ---
 
 ## Teil 7 — Offene Punkte für später

@@ -1,5 +1,6 @@
 import { Copy, Plus, Settings2, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
 import { slotShift } from "../lib/order";
 import { presetSummary } from "../lib/presets";
 import type { Preset } from "../lib/types";
@@ -56,6 +57,12 @@ export function PresetBar({
   const geometry = useRef<{ centers: { id: string; x: number }[]; pitch: number }>({ centers: [], pitch: 0 });
   /** Ein Loslassen nach dem Ziehen darf nicht noch als Klick gelten. */
   const swallowClick = useRef(false);
+  /**
+   * Einen Frame lang keine Transitionen: Beim Einsortieren wechseln DOM-Platz und
+   * Transform im selben Zug. Liefe die Transition mit, würde jede Karte sichtbar
+   * zurückfedern – genau das Springen, das hier weg soll.
+   */
+  const [freeze, setFreeze] = useState(false);
 
   useEffect(() => {
     if (!confirmId) return;
@@ -97,8 +104,11 @@ export function PresetBar({
          ihre Lücke. Gespeichert wird erst, wenn sie dort ist – sonst springt sie. */
       setDrag({ ...d, dx: null });
       window.setTimeout(() => {
+        setFreeze(true);
         if (d.to !== d.from) onReorder(d.id, d.to);
         setDrag(null);
+        /* Erst wenn der neue Stand gemalt ist, dürfen Transitionen wieder laufen. */
+        requestAnimationFrame(() => requestAnimationFrame(() => setFreeze(false)));
       }, SETTLE_MS);
     };
 
@@ -116,7 +126,7 @@ export function PresetBar({
   const dragRef = useRef(drag);
   dragRef.current = drag;
 
-  const beginPress = (p: Preset, index: number) => (e: React.PointerEvent<HTMLDivElement>) => {
+  const beginPress = (p: Preset, index: number) => (e: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled || e.button !== 0 || e.pointerType === "touch" || menu) return;
     press.current = { id: p.id, index, x: e.clientX, y: e.clientY };
 
@@ -161,6 +171,30 @@ export function PresetBar({
         const menuOpen = menu?.id === p.id;
         const isDragged = drag?.id === p.id;
         const shift = drag && !isDragged ? slotShift(index, drag.from, drag.to) : 0;
+
+        /*
+         * Drei Zustände: eingefroren (Einsortieren, keine Transition), gezogen
+         * (dem Zeiger folgen oder in die Lücke gleiten), gerückt (Platz machen).
+         */
+        const cardStyle: CSSProperties | undefined = freeze
+          ? { transition: "none" }
+          : isDragged
+            ? drag!.dx === null
+              ? {
+                  transform: `translateX(${(drag!.to - drag!.from) * geometry.current.pitch}px)`,
+                  zIndex: 20,
+                  cursor: "grabbing",
+                  transition: `transform ${SETTLE_MS}ms ${GLIDE}`,
+                }
+              : {
+                  transform: `translate3d(${drag!.dx}px, -5px, 0) scale(1.035)`,
+                  zIndex: 20,
+                  cursor: "grabbing",
+                  transition: "none",
+                }
+            : shift
+              ? { transform: `translateX(${shift * geometry.current.pitch}px)` }
+              : undefined;
         return (
           <div
             key={p.id}
@@ -205,40 +239,27 @@ export function PresetBar({
                 onSelect(presets[next].id);
               }
             }}
-            style={
-              isDragged
-                ? drag!.dx === null
-                  ? {
-                      transform: `translateX(${(drag!.to - drag!.from) * geometry.current.pitch}px)`,
-                      zIndex: 20,
-                      cursor: "grabbing",
-                      transition: `transform ${SETTLE_MS}ms ${GLIDE}`,
-                    }
-                  : {
-                      transform: `translate3d(${drag!.dx}px, -5px, 0) scale(1.035)`,
-                      zIndex: 20,
-                      cursor: "grabbing",
-                      transition: "none",
-                    }
-                : shift
-                  ? { transform: `translateX(${shift * geometry.current.pitch}px)` }
-                  : undefined
-            }
+            style={cardStyle}
             className={cn(
               "group relative flex w-[236px] shrink-0 cursor-pointer select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,opacity,background-color] duration-[300ms] ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
-              /* Ausgewählt heißt: die ganze Karte trägt die Farbe, nicht nur ihr Rand. */
+              /*
+               * Ausgewählt heißt: die ganze Karte ist der Knopf. Volles Blau mit
+               * Licht von oben und Schatten nach unten – ein Körper, keine Fläche.
+               */
               selected
-                ? "bg-[color-mix(in_srgb,var(--accent)_11%,var(--surface))] shadow-[0_0_0_2px_var(--accent),var(--sh-card)]"
+                ? "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_84%,white)_0%,var(--accent)_46%,color-mix(in_srgb,var(--accent)_82%,black)_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2),0_5px_16px_color-mix(in_srgb,var(--accent)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent)_55%,black)]"
                 : "hover:-translate-y-[1px]",
               disabled && !selected && "pointer-events-none opacity-40",
               disabled && selected && "opacity-70",
               isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)]"
             )}
           >
-            <PresetIcon icon={p.icon} size={42} />
+            <PresetIcon icon={p.icon} size={42} className={selected ? "ring-2 ring-white/45" : undefined} />
             <div className="min-w-0 flex-1">
               <div className="truncate text-[14.5px] font-semibold tracking-[-0.01em]">{p.name}</div>
-              <div className="truncate text-[12px] text-label2">{presetSummary(p)}</div>
+              <div className={cn("truncate text-[12px]", selected ? "text-white/75" : "text-label2")}>
+                {presetSummary(p)}
+              </div>
             </div>
 
             <button
@@ -255,9 +276,10 @@ export function PresetBar({
               aria-expanded={menuOpen}
               title={disabled ? lockReason : `${p.name}: Aktionen`}
               className={cn(
-                "grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full text-label3 transition hover:bg-fill hover:text-label active:scale-90",
+                "grid h-[30px] w-[30px] shrink-0 place-items-center rounded-full transition active:scale-90",
+                selected ? "text-white/70 hover:bg-white/15 hover:text-white" : "text-label3 hover:bg-fill hover:text-label",
                 "opacity-60 group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-30",
-                menuOpen && "bg-fill text-label opacity-100"
+                menuOpen && (selected ? "bg-white/20 text-white opacity-100" : "bg-fill text-label opacity-100")
               )}
             >
               <DotsGlyph className="h-[17px] w-[17px]" />
