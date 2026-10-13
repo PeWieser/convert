@@ -20,7 +20,6 @@ export const BASE_VIDEO: VideoSettings = {
   entropy: "cabac",
   twoPass: false,
   deinterlace: false,
-  rotate: 0,
   tenBit: false,
   hdrToSdr: false,
   speed: "balanced",
@@ -151,11 +150,13 @@ export interface PlannedSize {
   resized: boolean;
 }
 
-/** Berechnet die Zielgröße (nach Drehung), ohne jemals hochzuskalieren. */
+/**
+ * Berechnet die Zielgröße aus einem bereits gedrehten und beschnittenen Bild,
+ * ohne jemals hochzuskalieren.
+ */
 export function planVideoSize(v: VideoSettings, srcW: number, srcH: number): PlannedSize {
-  let w = srcW;
-  let h = srcH;
-  if (v.rotate === 90 || v.rotate === 270) [w, h] = [h, w];
+  const w = srcW;
+  const h = srcH;
   const mw = v.maxWidth;
   const mh = v.maxHeight;
   if (!mw && !mh) return { width: w, height: h, resized: false };
@@ -176,16 +177,18 @@ export function planVideoSize(v: VideoSettings, srcW: number, srcH: number): Pla
 /* ───────────── Kopieren statt Neu-Kodieren ───────────── */
 
 /** Smart: Passt die Quelle bereits, wird nicht neu kodiert (schneller, verlustfrei). */
-export function willCopyVideo(p: Preset, info: MediaInfo): boolean {
+export function willCopyVideo(p: Preset, info: MediaInfo, adjusted: boolean): boolean {
   const v = p.video;
   const src = info.video;
   if (!src || v.codec === "none") return false;
   if (CONTAINERS[p.container].kind === "audio") return false;
+  // Gedreht, beschnitten oder gekürzt heißt immer: neu schreiben.
+  if (adjusted) return false;
   if (v.codec === "copy") return true;
   if (MB_VIDEO[v.codec] !== src.codec) return false;
   if (v.rateControl !== "quality" || v.quality < 75) return false;
   if (v.profile !== "auto" || v.level !== "auto") return false;
-  if (v.rotate !== 0 || v.deinterlace || v.hdrToSdr || v.tenBit) return false;
+  if (v.deinterlace || v.hdrToSdr || v.tenBit) return false;
   if (p.subtitles === "burn") return false;
   if (planVideoSize(v, src.width, src.height).resized) return false;
   if (v.fps && src.fps > v.fps + 0.5) return false;
@@ -205,40 +208,7 @@ export function willCopyAudio(p: Preset, info: MediaInfo): boolean {
   return true;
 }
 
-/* ───────────── Größenschätzung ───────────── */
-
-const CODEC_FACTOR: Record<string, number> = { h264: 1, h265: 0.62, vp9: 0.7, av1: 0.5, vp8: 1.15 };
-
-export function qualityBitrate(codec: string, quality: number, w: number, h: number, fps: number): number {
-  const bpp = 0.024 * Math.pow(5.375, (quality - 20) / 60);
-  return bpp * w * h * fps * (CODEC_FACTOR[codec] ?? 1);
-}
-
-export function estimateOutputBytes(p: Preset, info: MediaInfo): number {
-  const dur = info.duration;
-  if (!dur || !isFinite(dur)) return 0;
-  let bps = 0;
-  const c = CONTAINERS[p.container];
-  if (c.kind === "video" && info.video && p.video.codec !== "none") {
-    if (willCopyVideo(p, info)) {
-      bps += info.video.bitrate || (info.size * 8 * 0.9) / dur;
-    } else {
-      const g = planVideoSize(p.video, info.video.width, info.video.height);
-      const fps = Math.min(info.video.fps || 30, p.video.fps || 999);
-      if (p.video.rateControl === "quality") bps += qualityBitrate(p.video.codec, p.video.quality, g.width, g.height, fps);
-      else bps += p.video.bitrate * 1000;
-    }
-  }
-  if (info.audio && p.audio.codec !== "none") {
-    const a = p.audio;
-    if (willCopyAudio(p, info)) bps += info.audio.bitrate || 128000;
-    else if (a.codec === "pcm" || a.codec === "flac") {
-      const raw = (a.sampleRate || info.audio.sampleRate || 44100) * (a.channels || info.audio.channels || 2) * 16;
-      bps += a.codec === "flac" ? raw * 0.55 : raw;
-    } else bps += a.bitrate * 1000;
-  }
-  return (bps * dur) / 8;
-}
+/* ───────────── Beschreibungen ───────────── */
 
 export function resolutionLabelFor(v: VideoSettings): string {
   if (!v.maxWidth && !v.maxHeight) return "Original";

@@ -35,6 +35,7 @@ export function Stage({
   onRemove,
   onRetry,
   onClear,
+  onOpen,
 }: {
   items: Item[];
   preset: Preset;
@@ -45,6 +46,8 @@ export function Stage({
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
   onClear: () => void;
+  /** Fehlt es, bleibt die Liste reine Anzeige – während der Konvertierung. */
+  onOpen?: (id: string) => void;
 }) {
   if (items.length === 0) {
     return (
@@ -79,7 +82,7 @@ export function Stage({
     >
       <ul aria-label="Dateien">
         {items.map((item) => (
-          <FileRow key={item.id} item={item} preset={preset} locked={running} onRemove={onRemove} onRetry={onRetry} />
+          <FileRow key={item.id} item={item} preset={preset} locked={running} onRemove={onRemove} onRetry={onRetry} onOpen={onOpen} />
         ))}
       </ul>
       {!running && (

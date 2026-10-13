@@ -1,6 +1,6 @@
 import { CONTAINERS } from "./formats";
-import { planVideoSize } from "./presets";
-import type { HardwareInfo, Preset } from "./types";
+import { NO_ADJUSTMENTS } from "./job";
+import type { Adjustments, HardwareInfo, Preset } from "./types";
 
 /**
  * Baut den FFmpeg-Befehl, den die Windows-Version später ausführt.
@@ -58,7 +58,13 @@ function crfFor(codec: string, q: number): number {
 
 const quote = (s: string) => `"${s}"`;
 
-export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boolean, input = "Quelle.mkv"): string {
+export function buildFfmpegCommand(
+  p: Preset,
+  hw: HardwareInfo,
+  hwEnabled: boolean,
+  input = "Quelle.mkv",
+  adj: Adjustments = NO_ADJUSTMENTS
+): string {
   const v = p.video;
   const a = p.audio;
   const c = CONTAINERS[p.container];
@@ -67,6 +73,9 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
 
   const head: string[] = ["ffmpeg", "-hide_banner", "-y"];
   if (useHw) head.push("-hwaccel", "auto");
+  /* Schnitt als Eingabe-Option: sucht schnell und bleibt beim Neukodieren genau. */
+  if (adj.trim?.start) head.push("-ss", String(adj.trim.start));
+  if (adj.trim?.end) head.push("-to", String(adj.trim.end));
   head.push("-i", quote(input));
   head.push("-map", "0:v?", "-map", "0:a?");
   if (c.kind === "video" && p.subtitles === "keep" && p.container !== "ts") head.push("-map", "0:s?");
@@ -91,9 +100,11 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
       filters.push(
         "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=hable,zscale=t=bt709:m=bt709:r=tv"
       );
-    if (v.rotate === 90) filters.push("transpose=1");
-    if (v.rotate === 180) filters.push("hflip,vflip");
-    if (v.rotate === 270) filters.push("transpose=2");
+    /* Dieselbe Reihenfolge wie in der Web-Engine: Drehen → Beschneiden → Skalieren. */
+    if (adj.rotate === 90) filters.push("transpose=1");
+    if (adj.rotate === 180) filters.push("hflip,vflip");
+    if (adj.rotate === 270) filters.push("transpose=2");
+    if (adj.crop) filters.push(`crop=${adj.crop.width}:${adj.crop.height}:${adj.crop.left}:${adj.crop.top}`);
     const mw = v.maxWidth;
     const mh = v.maxHeight;
     if (mw || mh) {
@@ -193,5 +204,3 @@ export function buildFfmpegCommand(p: Preset, hw: HardwareInfo, hwEnabled: boole
   }
   return [...head, ...video, ...audio, ...rest, quote(out)].join(" ");
 }
-
-export { planVideoSize };

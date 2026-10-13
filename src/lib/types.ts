@@ -33,7 +33,6 @@ export interface VideoSettings {
   entropy: "cabac" | "cavlc";
   twoPass: boolean;
   deinterlace: boolean;
-  rotate: 0 | 90 | 180 | 270;
   tenBit: boolean;
   hdrToSdr: boolean;
   speed: "fast" | "balanced" | "slow";
@@ -48,6 +47,34 @@ export interface AudioSettings {
   /** 0 = Original */
   channels: 0 | 1 | 2 | 6;
   normalize: boolean;
+}
+
+/** Beschnitt in Pixeln – und zwar im Bild *nach* der Drehung, so wie die Engine es macht. */
+export interface CropRect {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Fakten über eine einzelne Datei.
+ *
+ * Das Preset sagt, welches Format hinten herauskommen soll. Hier steht, was mit
+ * genau *dieser* Datei los ist: sie ist schief, sie hat schwarze Ränder, sie hat
+ * zwanzig Sekunden Vorlauf. Deshalb liegt das pro Datei und nicht pro Preset.
+ */
+export interface Adjustments {
+  /** Zusätzlich zu der Drehung, die bereits in den Metadaten der Datei steht. */
+  rotate: 0 | 90 | 180 | 270;
+  crop?: CropRect;
+  /** In Sekunden. Fehlt ein Wert, gilt Anfang bzw. Ende der Datei. */
+  trim?: { start?: number; end?: number };
+  /**
+   * Erst in der Desktop-App wirksam – die Web-Engine kann keine Untertitel.
+   * Die Oberfläche zeigt dafür nichts an, solang `Capabilities.subtitles` fehlt.
+   */
+  subtitles?: { mode: "auto" | "keep" | "burn" | "none"; track?: number };
 }
 
 export interface Preset {
@@ -137,6 +164,8 @@ export interface Item {
   repaired?: boolean;
   /** Fehler lässt sich nicht durch erneutes Versuchen beheben */
   final?: boolean;
+  /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
+  adjustments: Adjustments;
   outSize?: number;
   outPlace?: string;
   etaSeconds?: number;

@@ -693,6 +693,52 @@ Technisch dabei entstanden und ab jetzt wiederverwendbar:
 horizontal, ein normales absolutes Menü wäre abgeschnitten worden) und `MenuItem`
 (zuvor privat im Footer). `SlidersGlyph` wurde durch `DotsGlyph` ersetzt.
 
+### Nachtrag: Phase 2 + 3 umgesetzt
+
+**Drehen ist aus dem Preset ausgezogen.** Es war dort nie richtig aufgehoben: ein Preset
+beschreibt ein Zielformat, „diese Aufnahme steht schief" beschreibt eine Datei.
+`VideoSettings.rotate` ist entfernt, gespeicherte Presets verlieren das Feld beim Laden
+stillschweigend — es gibt keine Nutzer, die es vermissen könnten, und ein totes Feld
+mitzuschleppen war genau die Krankheit, die dieses Audit beschreibt.
+
+**Neu: `src/components/FileInspector.tsx`.** Doppelklick auf eine Dateizeile (oder Klick
+auf ihr Vorschaubild) öffnet sie. Aufbau wie der Preset-Editor, damit beide Fenster
+dieselbe Sprache sprechen: linker Werkzeugwechsel `Wiedergabe · Drehen · Zuschneiden ·
+Schneiden`, rechts die Bühne, darunter Laufwerk und Werkzeug, ganz unten
+`Abbrechen · Fertig`. Auch hier das Haken-Muster: jeder geänderte Wert einzeln
+zurückstellbar, in der Werkzeugleiste markiert ein grüner Punkt, wo etwas abweicht.
+`Auf alle anwenden` überträgt den Entwurf auf jede Datei mit Bild.
+
+Geometrie der Vorschau: Mediabunny dreht erst, beschneidet dann, skaliert zuletzt. Die
+Bühne baut denselben Raum nach — außen eine **achsenparallele** Box in der Größe nach der
+Drehung, darin das per CSS gedrehte Bild in Quellgröße, darüber das Beschnitt-Rechteck.
+Das Rechteck liegt dadurch immer waagerecht, auch wenn die Aufnahme um 90° gedreht ist.
+Kann der Browser das Format nicht abspielen, fällt die Bühne auf das Vorschaubild zurück
+und sagt das offen — kein stummer schwarzer Kasten.
+
+**`src/lib/job.ts` ist der Seam (Phase 3 vorgezogen).** `resolveJob(preset, info, adj)`
+rechnet Drehung, Beschnitt, Schnitt, Zielgröße und Kopier-Entscheidung **einmal** aus.
+`engine.ts` macht daraus Mediabunny-Optionen, `ffmpeg.ts` ein Argument-Array — vorher
+bauten beide dieselbe Logik selbst und drifteten auseinander. Die Größenschätzung zog
+mit um, weil sie den aufgelösten Auftrag braucht: Sie rechnet jetzt mit der geschnittenen
+Dauer und der beschnittenen Fläche.
+
+Zwei Regeln, die beim Schreiben der Tests entstanden sind:
+
+- **Gerade Zahlen runden ab.** `even(1919)` ergibt 1918, nicht 1920 — Aufrunden ließ einen
+  Beschnitt über das Bild hinauswachsen. Positionen haben kein Mindestmaß, Größen schon.
+- **Maßgeblich ist, was übrig bleibt.** Ein Beschnitt, der aufs ganze Bild fällt, und ein
+  Schnitt, der die ganze Datei behält, sind keine Änderung. Ohne diese Regel verbot ein
+  wirkungsloser Rahmen das verlustfreie Kopieren.
+
+**`npm test`** — 42 Prüfungen der reinen Logik, ohne neues Framework: gebündelt mit
+esbuild (liegt im Projekt), ausgeführt mit Node. `test/` steht im `tsconfig.include`,
+damit `npm run typecheck` auch den Test prüft; esbuild allein tut das nicht.
+
+**Weiter offen:** P2-11 (das `-map` ist unverändert global, nur die Filterkette ist jetzt
+geordnet), P2-12, P2-15, P2-10. Der Seam deckt die Logik ab; `MediaEngine` und
+`PlatformFS` als austauschbare Schnittstellen fehlen noch und kommen mit Phase 5.
+
 ---
 
 ## Teil 7 — Offene Punkte für später
@@ -711,22 +757,22 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
 
 ## Anhang · Befund-Index
 
-| # | Priorität | Befund | Ort |
-|---|---|---|---|
-| 1 | P0 | Untertitel-Einstellung ohne Wirkung im Web | `types.ts:61`, `engine.ts` (fehlt), `ffmpeg.ts:72,113,182` |
-| 2 | P0 | Preset-Änderungen sofort/global/unwiderruflich, `rearm()` zerstört Fertig-Status | `useApp.ts:90-116`, `PresetEditor.tsx:100-102` |
-| 3 | P0 | Zahnrad/Einstellungen während Konvertierung offen, aber wirkungslos | `App.tsx:83,108-114`, `useApp.ts:343` |
-| 4 | P1 | `concurrency` und `appearance` tot | `types.ts:70-71`, `storage.ts:8-9`, `useApp.ts:324` |
-| 5 | P1 | Engine kann `crop`/`flip`/`trim.start`/`process` — ungenutzt | `engine.ts:332-356` |
-| 6 | P1 | Drehen/Beschnitt/HDR/10 Bit/Deinterlace im Preset statt pro Datei | `types.ts:19-45` |
-| 7 | P1 | Kein Abspielen, kein Doppelklick auf Dateien | `FileRow.tsx` |
-| 8 | P1 | „Fertig" löscht Fehler samt Begründung | `Footer.tsx:252,377-380` |
-| 9 | P1 | „Stoppen" ohne Bestätigung | `Footer.tsx:373` |
-| 10 | P2 | GPU-Erkennung über deprecated WebGL-API | `hardware.ts:12-18` |
-| 11 | P2 | `-map 0:v?` mit globalem `-vf` bricht bei mehreren Videospuren | `ffmpeg.ts:71,114` |
-| 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` |
-| 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` |
-| 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` |
-| 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` |
-| 16 | P2 | Kein Plattform-Seam; `Target` nicht serialisierbar | `fsa.ts:184`, `engine.ts:9` |
-| 17 | P2 | Repo-Hygiene: Name, Version, README, Tests, Lint, CI, Lizenz | `package.json`, `README.md` |
+| # | Priorität | Befund | Ort | Stand |
+|---|---|---|---|---|
+| 1 | P0 | Untertitel-Einstellung ohne Wirkung im Web | `types.ts:61`, `engine.ts` (fehlt), `ffmpeg.ts:72,113,182` | behoben (Phase 1) |
+| 2 | P0 | Preset-Änderungen sofort/global/unwiderruflich, `rearm()` zerstört Fertig-Status | `useApp.ts:90-116`, `PresetEditor.tsx:100-102` | behoben (Phase 1) |
+| 3 | P0 | Zahnrad/Einstellungen während Konvertierung offen, aber wirkungslos | `App.tsx:83,108-114`, `useApp.ts:343` | behoben (Phase 1) |
+| 4 | P1 | `concurrency` und `appearance` tot | `types.ts:70-71`, `storage.ts:8-9`, `useApp.ts:324` | behoben (Phase 1) |
+| 5 | P1 | Engine kann `crop`/`flip`/`trim.start`/`process` — ungenutzt | `engine.ts:332-356` | behoben (Phase 2/3) |
+| 6 | P1 | Drehen/Beschnitt/HDR/10 Bit/Deinterlace im Preset statt pro Datei | `types.ts:19-45` | behoben (Phase 2) |
+| 7 | P1 | Kein Abspielen, kein Doppelklick auf Dateien | `FileRow.tsx` | behoben (Phase 2) |
+| 8 | P1 | „Fertig" löscht Fehler samt Begründung | `Footer.tsx:252,377-380` | behoben (Phase 1) |
+| 9 | P1 | „Stoppen" ohne Bestätigung | `Footer.tsx:373` | behoben (Phase 1) |
+| 10 | P2 | GPU-Erkennung über deprecated WebGL-API | `hardware.ts:12-18` | offen |
+| 11 | P2 | `-map 0:v?` mit globalem `-vf` bricht bei mehreren Videospuren | `ffmpeg.ts:71,114` | teilweise — Filterkette geordnet, `-map` unverändert |
+| 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` | offen |
+| 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` | behoben (Phase 4a) |
+| 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` | teilweise — Menü auf der Karte, Grid-Picker offen |
+| 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` | offen |
+| 16 | P2 | Kein Plattform-Seam; `Target` nicht serialisierbar | `fsa.ts:184`, `engine.ts:9` | teilweise — `job.ts` steht, `MediaEngine`/`PlatformFS` fehlen |
+| 17 | P2 | Repo-Hygiene: Name, Version, README, Tests, Lint, CI, Lizenz | `package.json`, `README.md` | teilweise — Tests ja, Lint/CI nein |

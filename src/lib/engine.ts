@@ -44,8 +44,9 @@ import type {
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputHandle } from "./fsa";
-import { planVideoSize, willCopyAudio, willCopyVideo } from "./presets";
-import type { AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+import { resolveJob } from "./job";
+import type { Job } from "./job";
+import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
 
 export const engineSupported: boolean =
   typeof VideoEncoder !== "undefined" && typeof VideoDecoder !== "undefined" && typeof AudioEncoder !== "undefined";
@@ -278,6 +279,8 @@ export interface ConvertRequest {
   source: SourceFile;
   info: MediaInfo;
   preset: Preset;
+  /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
+  adj: Adjustments;
   hardware: "auto" | "off";
   openOutput: () => Promise<OutputHandle | null>;
   onProgress: (fraction: number, processedSeconds: number) => void;
@@ -331,23 +334,26 @@ function makeFormat(p: Preset, fastStart: false | "in-memory"): OutputFormat {
   }
 }
 
-function buildVideo(p: Preset, info: MediaInfo, hw: Hw): ConversionVideoOptions | undefined {
+function buildVideo(job: Job, hw: Hw, forceTranscode: boolean): ConversionVideoOptions | undefined {
+  const p = job.preset;
+  const info = job.info;
   const v = p.video;
   if (v.codec === "none" || CONTAINERS[p.container].kind === "audio") return { discard: true };
   if (!info.video) return undefined;
-  if (willCopyVideo(p, info)) return {};
+  if (job.copyVideo && !forceTranscode) return {};
 
   const o: ConversionVideoOptions = { hardwareAcceleration: hw, forceTranscode: true };
   const codec = MB_VIDEO[v.codec];
   if (codec) o.codec = codec as ConversionVideoOptions["codec"];
 
-  const g = planVideoSize(v, info.video.width, info.video.height);
-  if (g.resized) {
-    o.width = g.width;
-    o.height = g.height;
-    o.fit = g.fit ?? "fill";
+  /* Reihenfolge der Engine: Drehung → Beschnitt → Skalierung. Genau so steht es im Job. */
+  if (job.adj.rotate) o.rotate = job.adj.rotate;
+  if (job.crop) o.crop = job.crop;
+  if (job.out) {
+    o.width = job.out.width;
+    o.height = job.out.height;
+    o.fit = job.out.fit ?? "fill";
   }
-  if (v.rotate) o.rotate = v.rotate;
   if (v.fps && info.video.fps > v.fps + 0.5) o.frameRate = v.fps;
   o.keyFrameInterval = Math.max(0.5, v.keyframeInterval);
   o.quality =
@@ -357,11 +363,13 @@ function buildVideo(p: Preset, info: MediaInfo, hw: Hw): ConversionVideoOptions 
   return o;
 }
 
-function buildAudio(p: Preset, info: MediaInfo): ConversionAudioOptions | undefined {
+function buildAudio(job: Job): ConversionAudioOptions | undefined {
+  const p = job.preset;
+  const info = job.info;
   const a = p.audio;
   if (a.codec === "none") return { discard: true };
   if (!info.audio) return undefined;
-  if (willCopyAudio(p, info)) return {};
+  if (job.copyAudio) return {};
 
   const o: ConversionAudioOptions = { forceTranscode: true };
   const codec = MB_AUDIO[a.codec];
@@ -426,6 +434,7 @@ async function attempt(
   const out = await req.openOutput();
   if (!out) return { status: "skipped", size: 0, place: "" };
 
+  const job = resolveJob(req.preset, req.info, req.adj);
   const input = new Input({ source: new BlobSource(req.source.file), formats: ALL_FORMATS });
   const useStream = !!out.writable;
   const target = useStream
@@ -443,11 +452,18 @@ async function attempt(
 
   try {
     const options: ConversionOptions = { input, output, showWarnings: false };
-    const video = buildVideo(p, req.info, opts.hw);
-    const audio = buildAudio(p, req.info);
+    const video = buildVideo(job, opts.hw, !!opts.noCopy);
+    const audio = buildAudio(job);
     if (video) options.video = video;
     if (audio) options.audio = audio;
-    if (opts.trimEnd) options.trim = { end: opts.trimEnd };
+    /* Der Reparaturpfad kappt das Ende; der Nutzerschnitt liegt schon im Job. */
+    const trimStart = job.trim?.start;
+    const trimEnd = opts.trimEnd ?? job.trim?.end;
+    if (trimStart || trimEnd !== undefined) {
+      options.trim = {};
+      if (trimStart && trimEnd !== undefined && trimStart < trimEnd) options.trim.start = trimStart;
+      if (trimEnd !== undefined) options.trim.end = trimEnd;
+    }
     if (opts.noCopy) options.copy = false;
     if (p.metadata === "strip") options.tags = {};
 

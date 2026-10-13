@@ -110,15 +110,20 @@ export function RevertMark({ onRevert, label = "Wert" }: { onRevert: () => void;
       onClick={onRevert}
       aria-label={`${label} zurücksetzen`}
       title={`${label} zurücksetzen`}
-      className="group/revert anim-fade grid h-6 w-6 shrink-0 place-items-center rounded-full transition-colors hover:bg-fill active:scale-90"
+      className={cn(
+        "group/revert anim-fade grid h-6 w-6 shrink-0 place-items-center rounded-full",
+        "bg-ok/15 text-ok ring-1 ring-ok/30",
+        "transition-[background-color,color,box-shadow,transform] duration-150",
+        "hover:scale-105 hover:bg-warn/15 hover:text-warn hover:ring-warn/35 active:scale-90"
+      )}
     >
       <span className="relative grid h-3.5 w-3.5 place-items-center">
         <Check
-          className="absolute h-3.5 w-3.5 text-ok transition-opacity duration-150 group-hover/revert:opacity-0"
+          className="absolute h-3.5 w-3.5 transition-opacity duration-150 group-hover/revert:opacity-0"
           strokeWidth={3}
         />
         <RotateCcw
-          className="absolute h-3.5 w-3.5 text-warn opacity-0 transition-opacity duration-150 group-hover/revert:opacity-100"
+          className="absolute h-3.5 w-3.5 opacity-0 transition-opacity duration-150 group-hover/revert:opacity-100"
           strokeWidth={2.4}
         />
       </span>

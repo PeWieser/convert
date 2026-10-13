@@ -1,6 +1,6 @@
-import { Check, RotateCw, X } from "lucide-react";
+import { Check, Play, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { estimateOutputBytes } from "../lib/presets";
+import { adjustmentsSummary, estimateOutputBytes } from "../lib/job";
 import { extOf, formatBytes, formatDuration, resolutionLabel } from "../lib/format";
 import { sourceCodecLabel } from "../lib/formats";
 import type { Item, Preset } from "../lib/types";
@@ -71,16 +71,21 @@ export function FileRow({
   locked = false,
   onRemove,
   onRetry,
+  onOpen,
 }: {
   item: Item;
   preset: Preset;
   locked?: boolean;
   onRemove: (id: string) => void;
   onRetry: (id: string) => void;
+  /** Doppelklick auf die Zeile: abspielen, drehen, zuschneiden, schneiden. */
+  onOpen?: (id: string) => void;
 }) {
   const { status, info } = item;
   const removable = !locked && status !== "converting" && status !== "queued";
-  const estimate = info && status === "ready" ? estimateOutputBytes(preset, info) : 0;
+  const estimate = info && status === "ready" ? estimateOutputBytes(preset, info, item.adjustments) : 0;
+  const adjusted = adjustmentsSummary(item.adjustments);
+  const canOpen = !!onOpen && !!info && !locked;
   const isAudio = !!info && !info.video;
   const dim = status === "queued" || status === "checking";
 
@@ -101,26 +106,41 @@ export function FileRow({
 
   return (
     <li
+      onDoubleClick={canOpen ? () => onOpen!(item.id) : undefined}
+      title={canOpen ? "Doppelklick: abspielen und bearbeiten" : undefined}
       className={cn(
         "anim-row group relative flex min-h-[64px] items-center gap-3.5 px-4 py-2.5 transition-opacity duration-300",
+        canOpen && "cursor-default",
         dim && "opacity-60",
         "[&+&]:before:absolute [&+&]:before:left-[86px] [&+&]:before:right-0 [&+&]:before:top-0 [&+&]:before:h-px [&+&]:before:bg-sep"
       )}
     >
-      <div className="relative grid h-[42px] w-[56px] shrink-0 place-items-center overflow-hidden rounded-[9px] bg-fill">
+      <button
+        type="button"
+        onClick={canOpen ? () => onOpen!(item.id) : undefined}
+        disabled={!canOpen}
+        aria-label={canOpen ? `${item.source.name} abspielen und bearbeiten` : item.source.name}
+        className="group/thumb relative grid h-[42px] w-[56px] shrink-0 place-items-center overflow-hidden rounded-[9px] bg-fill transition-[filter,transform] duration-200 hover:brightness-[0.92] active:scale-95 disabled:pointer-events-none"
+      >
         {item.thumb ? (
           <img src={item.thumb} alt="" className="h-full w-full object-cover" draggable={false} />
         ) : (
           <Glyph audio={isAudio} />
         )}
-        {status === "done" && (
+        {status === "done" ? (
           <span className="anim-fade absolute inset-0 grid place-items-center bg-black/40">
             <span className="grid h-[22px] w-[22px] place-items-center rounded-full bg-ok">
               <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
             </span>
           </span>
+        ) : (
+          canOpen && (
+            <span className="absolute inset-0 grid place-items-center bg-black/40 opacity-0 transition-opacity duration-200 group-hover/thumb:opacity-100">
+              <Play className="ml-[1px] h-4 w-4 text-white" fill="currentColor" strokeWidth={0} />
+            </span>
+          )
         )}
-      </div>
+      </button>
 
       <div className="min-w-0 flex-1">
         <div className="truncate text-[14px] font-medium leading-tight" title={item.source.name}>
@@ -130,6 +150,11 @@ export function FileRow({
       </div>
 
       <div className="flex h-8 shrink-0 items-center gap-1.5">
+        {adjusted && (
+          <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
+            {adjusted}
+          </span>
+        )}
         {status === "ready" && estimate > 0 && (
           <span className="tnum text-[12.5px] text-label2 transition-opacity group-hover:opacity-0">{formatBytes(estimate)}</span>
         )}

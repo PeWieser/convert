@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FileInspector } from "./components/FileInspector";
 import { Footer } from "./components/Footer";
 import { PresetBar } from "./components/PresetBar";
 import { PresetEditor } from "./components/PresetEditor";
@@ -20,6 +21,9 @@ export default function App() {
   const [editor, setEditor] = useState<{ original: Preset; savedId: string | null } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [dragging, setDragging] = useState(false);
+  /** Geöffnete Datei – Drehen, Zuschneiden, Schneiden. */
+  const [inspecting, setInspecting] = useState<string | null>(null);
+  const inspected = inspecting ? items.find((i) => i.id === inspecting) : undefined;
 
   const addDropRef = useRef(app.addDrop);
   addDropRef.current = app.addDrop;
@@ -91,7 +95,7 @@ export default function App() {
       const t = e.target as HTMLElement | null;
       const typing =
         !!t && (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement);
-      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings) return;
+      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings || inspecting) return;
       const k = e.key.toLowerCase();
       if (k === "o") {
         e.preventDefault();
@@ -106,7 +110,19 @@ export default function App() {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [app, busy, editor, showSettings]);
+  }, [app, busy, editor, showSettings, inspecting]);
+
+  /* Läuft die Konvertierung los, schließt sich das Fenster von allein. */
+  useEffect(() => {
+    if (busy) setInspecting(null);
+  }, [busy]);
+
+  const openInspector = (id: string) => {
+    if (busy) return;
+    const found = items.find((i) => i.id === id);
+    if (!found || !found.info) return;
+    setInspecting(id);
+  };
 
   const openEditor = (id: string) => {
     const found = app.presets.find((p) => p.id === id);
@@ -157,6 +173,7 @@ export default function App() {
             onRemove={app.remove}
             onRetry={app.retry}
             onClear={app.clear}
+            onOpen={busy ? undefined : openInspector}
           />
         </div>
       </main>
@@ -195,6 +212,22 @@ export default function App() {
             setEditor(null);
           }}
           onClose={() => setEditor(null)}
+        />
+      )}
+
+      {inspected?.info && (
+        <FileInspector
+          key={inspected.id}
+          item={inspected}
+          onClose={() => setInspecting(null)}
+          onFinish={(adj) => {
+            app.setAdjustments(inspected.id, adj);
+            setInspecting(null);
+          }}
+          onApplyToAll={(adj) => {
+            app.applyAdjustmentsToAll(adj);
+            setInspecting(null);
+          }}
         />
       )}
 

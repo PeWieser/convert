@@ -2,6 +2,7 @@
 node_modules/
 
 # Bau-Ergebnisse
+.tmp/
 dist/
 dist-electron/
 release/

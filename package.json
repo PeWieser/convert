@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "esbuild test/job.test.ts --bundle --platform=node --format=cjs --outfile=.tmp/job.test.cjs --log-level=error && node .tmp/job.test.cjs"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "^1.61.3",

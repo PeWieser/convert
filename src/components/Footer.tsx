@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
 import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
 import { fsaSupported } from "../lib/fsa";
-import { estimateOutputBytes } from "../lib/presets";
+import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
 import { Btn, Menu, MenuItem } from "./ui";
 

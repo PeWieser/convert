@@ -423,18 +423,6 @@ export function PresetEditor({
         </Row>
       </Group>
       <Group title="Bildverarbeitung">
-        <Row label="Drehen" {...field("video.rotate")}>
-          <Select
-            value={v.rotate}
-            options={[
-              { value: 0, label: "Nicht drehen" },
-              { value: 90, label: "90° rechts" },
-              { value: 180, label: "180°" },
-              { value: 270, label: "90° links" },
-            ]}
-            onChange={(r) => setV({ rotate: r })}
-          />
-        </Row>
         <Row label="Zeilensprung entfernen" sub="Für Material aus alten Kameras und TV-Aufnahmen" {...field("video.deinterlace")}>
           <Switch checked={v.deinterlace} onChange={(d) => setV({ deinterlace: d })} />
         </Row>

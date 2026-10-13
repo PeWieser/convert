@@ -13,10 +13,11 @@ import {
 } from "../lib/fsa";
 import type { Target } from "../lib/fsa";
 import { detectHardware } from "../lib/hardware";
+import { NO_ADJUSTMENTS } from "../lib/job";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
-import type { Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
+import type { Adjustments, Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
 
 /** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
 const willRearm = (i: Item) =>
@@ -209,6 +210,7 @@ export function useApp() {
         status: "checking",
         health: { state: "ok" },
         progress: 0,
+        adjustments: NO_ADJUSTMENTS,
       }));
       setItems((prev) => [...prev, ...fresh]);
 
@@ -297,6 +299,42 @@ export function useApp() {
     updateSettings({ destination: "auto", customDestinationName: "" });
   }, [updateSettings]);
 
+  /* ───── Drehen · Zuschneiden · Schneiden – pro Datei, nicht pro Preset ───── */
+
+  /**
+   * Legt die Anpassungen einer Datei fest.
+   * Eine bereits fertige Datei wird wieder bereit – sonst läge ein Ergebnis
+   * herum, das nicht mehr zeigt, was die Datei ist.
+   */
+  const setAdjustments = useCallback((id: string, adj: Adjustments) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i, adjustments: adj };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  /** Dieselben Anpassungen für alle Dateien – spart Klicks bei einer Serie. */
+  const applyAdjustmentsToAll = useCallback((adj: Adjustments) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (!i.info || !i.info.video) return i;
+        const next = { ...i, adjustments: adj };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
   /* ───────── Konvertieren ───────── */
 
   const stop = useCallback(() => abortRef.current?.abort(), []);
@@ -370,6 +408,7 @@ export function useApp() {
               source: item.source,
               info,
               preset: current,
+              adj: item.adjustments,
               hardware: settings.hardware,
               signal: ac.signal,
               openOutput: () => openOutput(target, baseName(item.source.name), ext, settings, item.source.handle),
@@ -458,6 +497,8 @@ export function useApp() {
     forgetDestinations,
     start,
     stop,
+    setAdjustments,
+    applyAdjustmentsToAll,
     dismissNotice: () => setNotice(null),
   };
 }
