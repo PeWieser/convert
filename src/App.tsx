@@ -6,12 +6,18 @@ import { GearGlyph } from "./components/PresetIcon";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { Stage } from "./components/Stage";
 import { useApp } from "./hooks/useApp";
+import { cloneAsNew, clonePreset } from "./lib/presets";
+import type { Preset } from "./lib/types";
+
+/** Warum ein Bedienelement gerade nicht geht. Gesperrt heißt: mit Begründung. */
+const LOCK_HINT = "Während der Konvertierung gesperrt";
 
 export default function App() {
   const app = useApp();
   const { items, running } = app;
-  const busy = running || app.planning;
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const busy = app.locked;
+  /** Geöffneter Preset-Editor: ein Entwurf und die ID des gespeicherten Presets (null = neu). */
+  const [editor, setEditor] = useState<{ original: Preset; savedId: string | null } | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [dragging, setDragging] = useState(false);
 
@@ -20,14 +26,19 @@ export default function App() {
   const busyRef = useRef(busy);
   busyRef.current = busy;
 
-  /* Erscheinungsbild folgt immer dem System – keine Entscheidung nötig. */
+  /* Erscheinungsbild: System, Hell oder Dunkel – wie in den Einstellungen gewählt. */
+  const appearance = app.settings.appearance;
   useEffect(() => {
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => document.documentElement.classList.toggle("dark", mq.matches);
+    const apply = () =>
+      document.documentElement.classList.toggle(
+        "dark",
+        appearance === "dark" || (appearance === "auto" && mq.matches)
+      );
     apply();
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
-  }, []);
+  }, [appearance]);
 
   /* Fortschritt im Fenstertitel – sichtbar, auch wenn das Fenster im Hintergrund ist. */
   useEffect(() => {
@@ -80,7 +91,7 @@ export default function App() {
       const t = e.target as HTMLElement | null;
       const typing =
         !!t && (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement);
-      if (!(e.metaKey || e.ctrlKey) || typing || editingId || showSettings) return;
+      if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings) return;
       const k = e.key.toLowerCase();
       if (k === "o") {
         e.preventDefault();
@@ -90,14 +101,19 @@ export default function App() {
         if (!busy) void app.start();
       } else if (k === ",") {
         e.preventDefault();
-        setShowSettings(true);
+        if (!busy) setShowSettings(true);
       }
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [app, busy, editingId, showSettings]);
+  }, [app, busy, editor, showSettings]);
 
-  const editing = app.presets.find((p) => p.id === editingId) ?? null;
+  const openEditor = (id: string) => {
+    const found = app.presets.find((p) => p.id === id);
+    if (!found) return;
+    app.selectPreset(id);
+    setEditor({ original: clonePreset(found), savedId: id });
+  };
 
   return (
     <div className="flex h-full flex-col bg-canvas">
@@ -107,8 +123,10 @@ export default function App() {
         <div className="no-drag flex justify-end">
           <button
             aria-label="Einstellungen"
+            disabled={busy}
+            title={busy ? LOCK_HINT : "Einstellungen"}
             onClick={() => setShowSettings(true)}
-            className="grid h-8 w-8 place-items-center rounded-full text-label2/80 transition hover:bg-fill hover:text-label active:scale-95"
+            className="grid h-8 w-8 place-items-center rounded-full text-label2/80 transition hover:bg-fill hover:text-label active:scale-95 disabled:pointer-events-none disabled:opacity-40"
           >
             <GearGlyph className="h-[17px] w-[17px]" />
           </button>
@@ -121,12 +139,10 @@ export default function App() {
             presets={app.presets}
             selectedId={app.preset.id}
             disabled={busy}
+            lockReason={LOCK_HINT}
             onSelect={app.selectPreset}
-            onEdit={(id) => {
-              app.selectPreset(id);
-              setEditingId(id);
-            }}
-            onAdd={() => setEditingId(app.addPreset())}
+            onEdit={openEditor}
+            onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
           />
           <Stage
             items={items}
@@ -153,6 +169,7 @@ export default function App() {
           notice={app.notice}
           onStart={() => void app.start()}
           onStop={app.stop}
+          onRetryFailed={app.retryFailed}
           onClear={app.clear}
           onChooseDestination={() => void app.chooseDestination()}
           onUseAuto={() => app.updateSettings({ destination: "auto" })}
@@ -161,22 +178,26 @@ export default function App() {
         />
       )}
 
-      {editing && (
+      {editor && (
         <PresetEditor
-          key={editing.id}
-          preset={editing}
+          key={editor.original.id}
+          preset={editor.original}
+          isNew={editor.savedId === null}
           caps={app.caps}
           hardware={app.hardware}
           hwOn={app.settings.hardware === "auto"}
-          canDelete={app.presets.length > 1}
-          onChange={app.updatePreset}
-          onDuplicate={() => setEditingId(app.duplicatePreset(editing.id))}
-          onDelete={() => {
-            app.deletePreset(editing.id);
-            setEditingId(null);
+          canDelete={editor.savedId !== null && app.presets.length > 1}
+          onSave={(p) => {
+            if (editor.savedId) app.savePreset(p);
+            else app.createPreset(p);
+            setEditor(null);
           }}
-          onReset={() => app.resetPreset(editing.id)}
-          onClose={() => setEditingId(null)}
+          onDuplicate={(current) => setEditor({ original: cloneAsNew(current), savedId: null })}
+          onDelete={() => {
+            if (editor.savedId) app.deletePreset(editor.savedId);
+            setEditor(null);
+          }}
+          onClose={() => setEditor(null)}
         />
       )}
 

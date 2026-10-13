@@ -319,17 +319,27 @@ export function TextField({
 export function Sheet({
   title,
   onClose,
+  onCloseRequest,
   children,
   width = 560,
 }: {
   title: string;
+  /** Schließt das Sheet tatsächlich. */
   onClose: () => void;
+  /**
+   * Was bei Esc oder Klick auf den Hintergrund passieren soll. Fehlt es, wird direkt
+   * geschlossen. Ein Entwurf mit ungespeicherten Änderungen hakt hier nach.
+   */
+  onCloseRequest?: () => void;
   children: ReactNode;
   width?: number;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
+  const requestRef = useRef(onCloseRequest);
+  requestRef.current = onCloseRequest;
+  const requestClose = () => (requestRef.current ? requestRef.current() : closeRef.current());
 
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
@@ -344,7 +354,7 @@ export function Sheet({
 
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        closeRef.current();
+        requestClose();
         return;
       }
       if (e.key !== "Tab") return;
@@ -373,7 +383,7 @@ export function Sheet({
       className="anim-fade fixed inset-0 z-50 flex items-center justify-center p-5 backdrop-blur-[3px]"
       style={{ background: "var(--overlay)" }}
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) requestClose();
       }}
     >
       <div

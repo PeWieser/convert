@@ -58,6 +58,10 @@ export interface Preset {
   container: ContainerId;
   video: VideoSettings;
   audio: AudioSettings;
+  /**
+   * Nur in der Desktop-App wirksam (FFmpeg). Die Web-Engine kann Untertitel nicht
+   * steuern – die Oberfläche fragt `Capabilities.subtitles`, bevor sie das anbietet.
+   */
   subtitles: "keep" | "burn" | "none";
   metadata: "keep" | "strip";
   fastStart: boolean;
@@ -67,6 +71,7 @@ export interface Settings {
   hardware: "auto" | "off";
   outFolderName: string;
   collision: "number" | "overwrite" | "skip";
+  /** Gleichzeitig konvertierte Dateien. 0 = automatisch (mit Grafikkarte zwei, sonst eine). */
   concurrency: number;
   appearance: "auto" | "light" | "dark";
   destination: "auto" | "custom";
@@ -150,4 +155,10 @@ export interface Capabilities {
   video: VideoCodecId[];
   audio: AudioCodecId[];
   ready: boolean;
+  /**
+   * Kann diese Engine Untertitel beibehalten, einbrennen oder entfernen?
+   * Web (WebCodecs): nein. Desktop (FFmpeg): ja.
+   * Die Oberfläche zeigt keine Regler für Fähigkeiten, die es nicht gibt.
+   */
+  subtitles: boolean;
 }

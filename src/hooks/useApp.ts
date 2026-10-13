@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConvertError, convert, initEngine, isCanceled, probe } from "../lib/engine";
-import { baseName } from "../lib/format";
+import { baseName, plural } from "../lib/format";
 import { CONTAINERS } from "../lib/formats";
 import {
   chooseCustomDestination,
@@ -13,10 +13,14 @@ import {
 } from "../lib/fsa";
 import type { Target } from "../lib/fsa";
 import { detectHardware } from "../lib/hardware";
-import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, factoryPreset, normalizePreset } from "../lib/presets";
+import { BASE_AUDIO, BASE_VIDEO, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
 import type { Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
+
+/** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
+const willRearm = (i: Item) =>
+  (i.status === "done" || (i.status === "failed" && i.health.state !== "broken")) && !!i.info;
 
 const sameFile = (a: SourceFile, b: SourceFile) =>
   a.name === b.name &&
@@ -40,18 +44,22 @@ export function useApp() {
   const [settings, setSettings] = usePersistent<Settings>(
     "wandler.settings.v1",
     () => DEFAULT_SETTINGS,
-    (s) => ({ ...DEFAULT_SETTINGS, ...s })
+    // `concurrency` war in früheren Versionen unbenutzt und stand auf 1;
+    // gemeint war „automatisch", das ist heute die 0.
+    (s) => ({ ...DEFAULT_SETTINGS, ...s, concurrency: s.concurrency === 1 ? 0 : (s.concurrency ?? 0) })
   );
   const [items, setItems] = useState<Item[]>([]);
   const [running, setRunning] = useState(false);
   const [planning, setPlanning] = useState(false);
   const [overall, setOverall] = useState<Overall | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false });
+  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
   const hardware = useMemo(() => detectHardware(), []);
 
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;
+  const presetsRef = useRef<Preset[]>([]);
+  presetsRef.current = presets;
   const abortRef = useRef<AbortController | null>(null);
   const probeLimit = useRef(createLimiter(2)).current;
 
@@ -88,56 +96,63 @@ export function useApp() {
 
   /** Nach einem Durchlauf: neues Ziel-Format → Dateien sind wieder startbereit. */
   const rearm = useCallback(() => {
+    const attempted = itemsRef.current.some((i) => i.attempted);
+    const affected = attempted ? itemsRef.current.filter(willRearm).length : 0;
     setItems((prev) =>
       prev.some((i) => i.attempted)
         ? prev.map((i) =>
-            (i.status === "done" || (i.status === "failed" && i.health.state !== "broken")) && i.info
-              ? { ...i, status: "ready", progress: 0, message: undefined, outSize: undefined, outPlace: undefined, repaired: false, final: false, attempted: false }
+            willRearm(i)
+              ? { ...i, status: "ready" as const, progress: 0, message: undefined, outSize: undefined, outPlace: undefined, repaired: false, final: false, attempted: false }
               : { ...i, attempted: false }
           )
         : prev
     );
+    return affected;
   }, []);
 
   const selectPreset = useCallback(
     (id: string) => {
-      if (id !== settings.selectedPresetId) rearm();
+      if (id !== settings.selectedPresetId) {
+        const affected = rearm();
+        if (affected > 0)
+          setNotice(
+            `${plural(affected, "fertige Datei wird", "fertige Dateien werden")} mit dem neu gewählten Preset erneut konvertiert.`
+          );
+      }
       updateSettings({ selectedPresetId: id });
     },
     [updateSettings, rearm, settings.selectedPresetId]
   );
 
-  const updatePreset = useCallback(
+  /**
+   * Nimmt den Entwurf aus dem Preset-Editor entgegen. Erst dieser Aufruf schreibt
+   * dauerhaft – und erst hier werden fertige Dateien wieder startbereit, angekündigt.
+   */
+  const savePreset = useCallback(
     (p: Preset) => {
-      rearm();
-      setPresets((prev) => prev.map((x) => (x.id === p.id ? normalizePreset(p) : x)));
+      const next = normalizePreset(p);
+      const before = presetsRef.current.find((x) => x.id === next.id);
+      if (before && JSON.stringify(before) === JSON.stringify(next)) return;
+      setPresets((prev) => prev.map((x) => (x.id === next.id ? next : x)));
+      const affected = rearm();
+      if (affected > 0)
+        setNotice(
+          `${plural(affected, "fertige Datei wird", "fertige Dateien werden")} mit den neuen Einstellungen erneut konvertiert.`
+        );
     },
     [setPresets, rearm]
   );
 
-  const addPreset = useCallback(() => {
-    const np = cloneAsNew(preset, "Neues Preset");
-    delete np.builtin;
-    setPresets((prev) => [...prev, np]);
-    updateSettings({ selectedPresetId: np.id });
-    return np.id;
-  }, [preset, setPresets, updateSettings]);
-
-  const duplicatePreset = useCallback(
-    (id: string) => {
-      const base = presets.find((p) => p.id === id);
-      if (!base) return id;
-      const np = cloneAsNew(base);
-      setPresets((prev) => {
-        const i = prev.findIndex((p) => p.id === id);
-        const next = [...prev];
-        next.splice(i + 1, 0, np);
-        return next;
-      });
+  /** Ein neues Preset entsteht erst beim Speichern – nicht schon beim Öffnen des Editors. */
+  const createPreset = useCallback(
+    (p: Preset) => {
+      const np = normalizePreset(p);
+      delete np.builtin;
+      setPresets((prev) => [...prev, np]);
       updateSettings({ selectedPresetId: np.id });
       return np.id;
     },
-    [presets, setPresets, updateSettings]
+    [setPresets, updateSettings]
   );
 
   const deletePreset = useCallback(
@@ -148,18 +163,6 @@ export function useApp() {
       if (settings.selectedPresetId === id) updateSettings({ selectedPresetId: rest[0].id });
     },
     [presets, setPresets, settings.selectedPresetId, updateSettings]
-  );
-
-  const resetPreset = useCallback(
-    (id: string) => {
-      setPresets((prev) =>
-        prev.map((p) => {
-          if (p.id !== id || !p.builtin) return p;
-          return { ...factoryPreset(p.builtin), id: p.id };
-        })
-      );
-    },
-    [setPresets]
   );
 
   const resetAllPresets = useCallback(() => {
@@ -250,6 +253,17 @@ export function useApp() {
     [patch]
   );
 
+  /** Alle Fehler, die ein zweiter Versuch beheben kann, wieder auf „bereit". */
+  const retryFailed = useCallback(() => {
+    setItems((prev) =>
+      prev.map((i) =>
+        i.status === "failed" && !i.final
+          ? { ...i, status: "ready", progress: 0, message: undefined, repaired: false, attempted: false }
+          : i
+      )
+    );
+  }, []);
+
   /* ───────── Ziel ───────── */
 
   const chooseDestination = useCallback(async () => {
@@ -320,8 +334,9 @@ export function useApp() {
       setOverall({ fraction, eta, completed, total: todo.length });
     };
 
-    // Smart: Mit GPU zwei Dateien parallel, sonst eine – keine Einstellung nötig.
-    const limit = createLimiter(settings.hardware === "auto" && hardware.available ? 2 : 1);
+    // Automatisch: mit Grafikkarte zwei Dateien parallel, sonst eine. Überschreibbar.
+    const automatic = settings.hardware === "auto" && hardware.available ? 2 : 1;
+    const limit = createLimiter(settings.concurrency > 0 ? settings.concurrency : automatic);
     await Promise.all(
       todo.map((item) =>
         limit(async () => {
@@ -401,17 +416,17 @@ export function useApp() {
     items,
     running,
     planning,
+    /** Solange gilt: keine Einstellung lässt sich ändern. Ein Zustand, kein Flickwerk. */
+    locked: running || planning,
     overall,
     notice,
     caps,
     hardware,
     updateSettings,
     selectPreset,
-    updatePreset,
-    addPreset,
-    duplicatePreset,
+    savePreset,
+    createPreset,
     deletePreset,
-    resetPreset,
     resetAllPresets,
     addFiles,
     addFolder,
@@ -419,6 +434,7 @@ export function useApp() {
     remove,
     clear,
     retry,
+    retryFailed,
     chooseDestination,
     useCustomDestination,
     forgetDestinations,

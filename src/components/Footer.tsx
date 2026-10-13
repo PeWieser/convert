@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, ChevronDown, X } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
 import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
@@ -60,6 +60,7 @@ export function Footer({
   notice,
   onStart,
   onStop,
+  onRetryFailed,
   onClear,
   onChooseDestination,
   onUseAuto,
@@ -75,6 +76,8 @@ export function Footer({
   notice: string | null;
   onStart: () => void;
   onStop: () => void;
+  /** Alle Fehler, die ein zweiter Versuch beheben kann, erneut in die Warteschlange. */
+  onRetryFailed: () => void;
   onClear: () => void;
   onChooseDestination: () => void;
   onUseAuto: () => void;
@@ -82,14 +85,25 @@ export function Footer({
   onDismissNotice: () => void;
 }) {
   const [open, setOpen] = useState(false);
+  const [confirmStop, setConfirmStop] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useOutsideClick(ref, () => setOpen(false), open);
+
+  useEffect(() => {
+    if (!confirmStop) return;
+    const t = setTimeout(() => setConfirmStop(false), 3000);
+    return () => clearTimeout(t);
+  }, [confirmStop]);
+  useEffect(() => {
+    if (!running) setConfirmStop(false);
+  }, [running]);
 
   const ready = items.filter((i) => i.status === "ready" && i.info);
   const checking = items.some((i) => i.status === "checking");
   const doneCount = items.filter((i) => i.status === "done").length;
   const failedCount = items.filter((i) => i.status === "failed").length;
   const finished = !running && items.some((i) => i.attempted) && ready.length === 0 && !checking;
+  const retryable = items.filter((i) => i.status === "failed" && !i.final).length;
   const readyDuration = ready.reduce((s, i) => s + (i.info?.duration ?? 0), 0);
   const readyBytes = ready.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info) : 0), 0);
 
@@ -211,13 +225,34 @@ export function Footer({
         <div className="min-w-0 flex-1">{status}</div>
 
         {running ? (
-          <Btn size="lg" onClick={onStop}>
-            Stoppen
-          </Btn>
+          confirmStop ? (
+            <Btn
+              size="lg"
+              variant="primary"
+              className="!bg-bad"
+              onClick={() => {
+                setConfirmStop(false);
+                onStop();
+              }}
+            >
+              Wirklich stoppen
+            </Btn>
+          ) : (
+            <Btn size="lg" onClick={() => setConfirmStop(true)}>
+              Stoppen
+            </Btn>
+          )
         ) : finished ? (
-          <Btn variant="primary" size="lg" onClick={onClear}>
-            Fertig
-          </Btn>
+          <>
+            {retryable > 0 && (
+              <Btn variant="ghost" onClick={onClear}>
+                Alle entfernen
+              </Btn>
+            )}
+            <Btn variant="primary" size="lg" onClick={retryable > 0 ? onRetryFailed : onClear}>
+              {retryable > 0 ? "Erneut versuchen" : "Fertig"}
+            </Btn>
+          </>
         ) : (
           <Btn variant="primary" size="lg" onClick={onStart} disabled={!ready.length || checking || planning}>
             Konvertieren

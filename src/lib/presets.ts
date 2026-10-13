@@ -90,9 +90,14 @@ export function factoryPreset(kind: "ipod" | "mp4"): Preset {
   return kind === "ipod" ? ipodPreset() : mp4Preset();
 }
 
+/** Tiefe Kopie – ein Preset ist reines JSON. */
+export function clonePreset(p: Preset): Preset {
+  return JSON.parse(JSON.stringify(p)) as Preset;
+}
+
 export function cloneAsNew(base: Preset, name?: string): Preset {
   const id = "preset-" + Math.random().toString(36).slice(2, 9);
-  const copy: Preset = JSON.parse(JSON.stringify(base));
+  const copy: Preset = clonePreset(base);
   delete copy.builtin;
   return { ...copy, id, name: name ?? (base.name.includes("Kopie") ? base.name : `${base.name} Kopie`) };
 }
@@ -181,6 +186,7 @@ export function willCopyVideo(p: Preset, info: MediaInfo): boolean {
   if (v.rateControl !== "quality" || v.quality < 75) return false;
   if (v.profile !== "auto" || v.level !== "auto") return false;
   if (v.rotate !== 0 || v.deinterlace || v.hdrToSdr || v.tenBit) return false;
+  if (p.subtitles === "burn") return false;
   if (planVideoSize(v, src.width, src.height).resized) return false;
   if (v.fps && src.fps > v.fps + 0.5) return false;
   return true;

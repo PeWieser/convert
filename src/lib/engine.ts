@@ -67,7 +67,7 @@ const AUDIO_BACK: Record<string, AudioCodecId> = {
 export function initEngine(): Promise<Capabilities> {
   if (!capsPromise) {
     capsPromise = (async () => {
-      if (!engineSupported) return { video: [], audio: [], ready: true };
+      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false };
       // Fehlende Encoder werden per WebAssembly nachgerüstet
       try {
         if (!(await canEncodeAudio("aac"))) (await import("@mediabunny/aac-encoder")).registerAacEncoder();
@@ -90,6 +90,8 @@ export function initEngine(): Promise<Capabilities> {
         video: v.map((c) => VIDEO_BACK[c]).filter(Boolean),
         audio: a.map((c) => AUDIO_BACK[c]).filter(Boolean),
         ready: true,
+        // WebCodecs kann Untertitel weder einbrennen noch entfernen – die Desktop-App kann es.
+        subtitles: false,
       };
     })();
   }

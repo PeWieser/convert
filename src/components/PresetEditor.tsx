@@ -11,7 +11,7 @@ import {
   VIDEO_CONTAINERS,
   qualityLabel,
 } from "../lib/formats";
-import { withContainer } from "../lib/presets";
+import { factoryPreset, withContainer } from "../lib/presets";
 import type {
   AudioCodecId,
   AudioSettings,
@@ -46,28 +46,34 @@ const SAMPLE_RATES = [
 const AUDIO_BITRATES = [64, 96, 128, 160, 192, 256, 320];
 
 export function PresetEditor({
-  preset,
+  preset: original,
+  isNew,
   caps,
   hardware,
   hwOn,
   canDelete,
-  onChange,
+  onSave,
   onDuplicate,
   onDelete,
-  onReset,
   onClose,
 }: {
+  /** Ausgangszustand. Gearbeitet wird auf einer Kopie – gespeichert wird erst auf Wunsch. */
   preset: Preset;
+  /** Ein Preset, das es noch nicht gibt: entsteht erst beim Speichern. */
+  isNew: boolean;
   caps: Capabilities;
   hardware: HardwareInfo;
   hwOn: boolean;
   canDelete: boolean;
-  onChange: (p: Preset) => void;
-  onDuplicate: () => void;
+  onSave: (p: Preset) => void;
+  onDuplicate: (current: Preset) => void;
   onDelete: () => void;
-  onReset: () => void;
   onClose: () => void;
 }) {
+  const [draft, setDraft] = useState<Preset>(original);
+  /** Der Rest der Komponente arbeitet auf dem Entwurf. */
+  const preset = draft;
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(original), [draft, original]);
   const [mode, setModeState] = useState<"simple" | "pro">(() =>
     localStorage.getItem("wandler.editorMode") === "pro" ? "pro" : "simple"
   );
@@ -80,6 +86,7 @@ export function PresetEditor({
     }
   };
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -97,9 +104,16 @@ export function PresetEditor({
   const isH26x = isH264 || v.codec === "h265";
   const lossyAudio = a.codec !== "copy" && a.codec !== "none" && a.codec !== "flac" && a.codec !== "pcm";
 
-  const set = (patch: Partial<Preset>) => onChange({ ...preset, ...patch });
-  const setV = (patch: Partial<VideoSettings>) => onChange({ ...preset, video: { ...v, ...patch } });
-  const setA = (patch: Partial<AudioSettings>) => onChange({ ...preset, audio: { ...a, ...patch } });
+  const set = (patch: Partial<Preset>) => setDraft((d) => ({ ...d, ...patch }));
+  const setV = (patch: Partial<VideoSettings>) => setDraft((d) => ({ ...d, video: { ...d.video, ...patch } }));
+  const setA = (patch: Partial<AudioSettings>) => setDraft((d) => ({ ...d, audio: { ...d.audio, ...patch } }));
+
+  /** Werkseinstellung – ändert den Entwurf, nicht das gespeicherte Preset. */
+  const resetDraft = () => {
+    if (preset.builtin) setDraft({ ...factoryPreset(preset.builtin), id: preset.id });
+  };
+
+  const requestClose = () => (dirty ? setConfirmDiscard(true) : onClose());
 
   const videoCodecOptions = useMemo(() => {
     const list: VideoCodecId[] = c.video.filter(
@@ -135,7 +149,7 @@ export function PresetEditor({
       <Select<ContainerId>
         value={preset.container}
         groups={containerGroups}
-        onChange={(id) => onChange(withContainer(preset, id))}
+        onChange={(id) => setDraft(withContainer(preset, id))}
       />
     </Row>
   );
@@ -171,7 +185,12 @@ export function PresetEditor({
   const res = resId(v);
 
   return (
-    <Sheet title={`${preset.name} bearbeiten`} onClose={onClose} width={600}>
+    <Sheet
+      title={isNew ? "Neues Preset" : dirty ? `${original.name} bearbeiten, ungespeichert` : `${original.name} bearbeiten`}
+      onClose={onClose}
+      onCloseRequest={requestClose}
+      width={600}
+    >
       <header className="px-6 pb-3 pt-6">
         <div className="flex items-center gap-4">
           <PresetIcon icon={preset.icon} size={44} />
@@ -188,8 +207,8 @@ export function PresetEditor({
             aria-label="Name des Presets"
             className="-mx-2 min-w-0 flex-1 rounded-lg bg-transparent px-2 py-1 text-[20px] font-semibold tracking-tight transition placeholder:text-label3 hover:bg-fill focus:bg-fill"
           />
-          <Btn variant="primary" onClick={onClose}>
-            Fertig
+          <Btn variant="primary" onClick={() => (dirty ? onSave(draft) : onClose())}>
+            {dirty ? "Speichern" : "Fertig"}
           </Btn>
         </div>
         <div className="mt-4 flex justify-center">
@@ -203,6 +222,15 @@ export function PresetEditor({
             className="min-w-[200px]"
           />
         </div>
+        <p
+          className={cn(
+            "mt-3 text-center text-[12px] transition-opacity duration-200",
+            dirty ? "text-warn opacity-100" : "opacity-0"
+          )}
+          role="status"
+        >
+          Ungespeicherte Änderungen
+        </p>
       </header>
 
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 pb-6 pt-2">
@@ -292,7 +320,7 @@ export function PresetEditor({
                   onChange={(m) => set({ metadata: m })}
                 />
               </Row>
-              {isVideoContainer && (
+              {isVideoContainer && caps.subtitles && (
                 <Row label="Untertitel">
                   <Select
                     value={preset.subtitles}
@@ -513,7 +541,10 @@ export function PresetEditor({
               )}
             </Group>
 
-            <Group title="FFmpeg-Befehl">
+            <Group
+              title="FFmpeg-Befehl"
+              footer="Vorschau des Befehls, den die Windows-Version ausführt. Die Web-Version kodiert mit WebCodecs im Browser."
+            >
               <div className="p-3">
                 <pre className="select-text whitespace-pre-wrap break-all rounded-lg bg-fill p-3 font-mono text-[11.5px] leading-relaxed">
                   {command}
@@ -539,11 +570,18 @@ export function PresetEditor({
 
       <footer className="flex items-center justify-between border-t border-sep px-4 py-3">
         <div className="flex items-center gap-1">
-          <Btn variant="plain" onClick={onDuplicate}>
-            <Copy className="h-3.5 w-3.5" /> Duplizieren
-          </Btn>
+          {dirty && (
+            <Btn variant="ghost" onClick={() => setConfirmDiscard(true)}>
+              Verwerfen
+            </Btn>
+          )}
+          {!isNew && (
+            <Btn variant="plain" onClick={() => onDuplicate(draft)}>
+              <Copy className="h-3.5 w-3.5" /> Duplizieren
+            </Btn>
+          )}
           {preset.builtin && (
-            <Btn variant="plain" onClick={onReset}>
+            <Btn variant="plain" onClick={resetDraft}>
               <RotateCcw className="h-3.5 w-3.5" /> Zurücksetzen
             </Btn>
           )}
@@ -558,6 +596,27 @@ export function PresetEditor({
           </Btn>
         )}
       </footer>
+      {confirmDiscard && (
+        <div className="anim-fade absolute inset-0 z-20 grid place-items-center rounded-[20px] bg-canvas/75 backdrop-blur-[3px]">
+          <div className="anim-pop w-[340px] rounded-[18px] bg-surface p-5 text-center shadow-pop">
+            <p className="text-[15px] font-semibold tracking-tight">Änderungen verwerfen?</p>
+            <p className="mt-1.5 text-[13px] leading-snug text-label2">
+              {isNew ? "Das neue Preset wird nicht angelegt." : `„${original.name}" bleibt unverändert.`}
+            </p>
+            <div className="mt-4 flex justify-center gap-1.5">
+              <Btn variant="ghost" onClick={() => setConfirmDiscard(false)}>
+                Weiter bearbeiten
+              </Btn>
+              <Btn variant="primary" onClick={() => onSave(draft)}>
+                Sichern
+              </Btn>
+              <Btn variant="danger" onClick={onClose}>
+                Verwerfen
+              </Btn>
+            </div>
+          </div>
+        </div>
+      )}
     </Sheet>
   );
 }

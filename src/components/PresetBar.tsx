@@ -8,6 +8,7 @@ export function PresetBar({
   presets,
   selectedId,
   disabled,
+  lockReason,
   onSelect,
   onEdit,
   onAdd,
@@ -15,6 +16,8 @@ export function PresetBar({
   presets: Preset[];
   selectedId: string;
   disabled: boolean;
+  /** Warum gesperrt – als `title` an jedem stummen Bedienelement. */
+  lockReason?: string;
   onSelect: (id: string) => void;
   onEdit: (id: string) => void;
   onAdd: () => void;
@@ -30,6 +33,7 @@ export function PresetBar({
             aria-checked={selected}
             aria-disabled={disabled}
             aria-label={`${p.name}, ${presetSummary(p)}`}
+            title={disabled ? lockReason : undefined}
             tabIndex={selected ? 0 : -1}
             onClick={() => !disabled && onSelect(p.id)}
             onDoubleClick={() => !disabled && onEdit(p.id)}
@@ -80,6 +84,7 @@ export function PresetBar({
       <button
         onClick={onAdd}
         disabled={disabled}
+        title={disabled ? lockReason : "Neues Preset"}
         aria-label="Neues Preset"
         className="grid w-[66px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
       >

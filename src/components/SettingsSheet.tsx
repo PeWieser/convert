@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { HardwareInfo, Settings } from "../lib/types";
-import { Btn, Group, Row, Select, Sheet, Switch, TextField } from "./ui";
+import { Btn, Group, Row, Segmented, Select, Sheet, Switch, TextField } from "./ui";
 
 export function SettingsSheet({
   settings,
@@ -30,7 +30,21 @@ export function SettingsSheet({
       </header>
 
       <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 pb-6 pt-3">
-        <Group>
+        <Group title="Allgemein">
+          <Row label="Erscheinungsbild">
+            <Segmented
+              value={settings.appearance}
+              onChange={(a) => onChange({ appearance: a })}
+              options={[
+                { value: "auto", label: "System" },
+                { value: "light", label: "Hell" },
+                { value: "dark", label: "Dunkel" },
+              ]}
+            />
+          </Row>
+        </Group>
+
+        <Group title="Leistung">
           <Row label="Grafikkarte verwenden" sub={hardware.available ? `${hardware.gpu} · ${hardware.encoder}` : "Keine Grafikkarte gefunden"}>
             <Switch
               disabled={!hardware.available}
@@ -38,9 +52,25 @@ export function SettingsSheet({
               onChange={(on) => onChange({ hardware: on ? "auto" : "off" })}
             />
           </Row>
+          <Row
+            label="Parallele Dateien"
+            sub="Automatisch: zwei mit Grafikkarte, sonst eine."
+          >
+            <Select
+              value={settings.concurrency}
+              onChange={(n) => onChange({ concurrency: n })}
+              options={[
+                { value: 0, label: "Automatisch" },
+                { value: 1, label: "1 Datei" },
+                { value: 2, label: "2 Dateien" },
+                { value: 3, label: "3 Dateien" },
+                { value: 4, label: "4 Dateien" },
+              ]}
+            />
+          </Row>
         </Group>
 
-        <Group>
+        <Group title="Ausgabe">
           <Row label="Ordnername">
             <TextField
               value={settings.outFolderName}
@@ -61,7 +91,7 @@ export function SettingsSheet({
           </Row>
         </Group>
 
-        <Group>
+        <Group title="Zurücksetzen">
           <Row label="Gemerkte Ordner">
             <Btn
               variant="plain"

@@ -1,12 +1,14 @@
 {
-  "name": "react-vite-tailwind",
+  "name": "wandler",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "Wandler – Videos und Musik konvertieren. Web-App (WebCodecs) und Windows-App (Electron + FFmpeg).",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@mediabunny/aac-encoder": "^1.61.3",
