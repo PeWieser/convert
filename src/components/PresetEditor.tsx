@@ -207,7 +207,7 @@ export function PresetEditor({
         />
       </Row>
       {(preset.container === "mp4" || preset.container === "mov") && (
-        <Row label="Schnellstart" sub="Datei ist sofort abspielbar, auch beim Streamen" {...field("fastStart")}>
+        <Row label="Schnellstart" sub="Sofort abspielbar, auch beim Streamen. Sehr große Dateien werden dafür fragmentiert." {...field("fastStart")}>
           <Switch checked={preset.fastStart} onChange={(f) => set({ fastStart: f })} />
         </Row>
       )}

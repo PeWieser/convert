@@ -10,6 +10,12 @@ import { Menu, MenuItem } from "./ui";
 /** Ab dieser Bewegung in px ist es ein Ziehen und kein Klick mehr. */
 const DRAG_THRESHOLD = 6;
 
+/** So lange gleitet die Karte nach dem Loslassen in ihre Lücke, bevor gespeichert wird. */
+const SETTLE_MS = 340;
+
+/** Die Bewegungskurve der App: zieht an, bremst weich. Nichts daran ist linear. */
+const GLIDE = "cubic-bezier(0.32, 0.72, 0, 1)";
+
 export function PresetBar({
   presets,
   selectedId,
@@ -43,7 +49,7 @@ export function PresetBar({
   const [confirmId, setConfirmId] = useState<string | null>(null);
 
   /* ── Ziehen zum Umsortieren ── */
-  const [drag, setDrag] = useState<{ id: string; dx: number; from: number; to: number } | null>(null);
+  const [drag, setDrag] = useState<{ id: string; dx: number | null; from: number; to: number } | null>(null);
   const cards = useRef(new Map<string, HTMLDivElement>());
   const press = useRef<{ id: string; index: number; x: number; y: number } | null>(null);
   /** Mittellinien und Kartenabstand beim Losziehen – gemessen, nicht geraten. */
@@ -71,7 +77,7 @@ export function PresetBar({
 
     const move = (e: PointerEvent) => {
       const p = press.current;
-      if (!p) return;
+      if (!p || dragRef.current?.dx === null) return;
       const dx = e.clientX - p.x;
       const { centers } = geometry.current;
       /* Zielstelle = wie viele andere Karten liegen links vom Zeiger. */
@@ -82,11 +88,18 @@ export function PresetBar({
     const up = () => {
       const d = dragRef.current;
       press.current = null;
-      setDrag(null);
-      if (d && d.to !== d.from) {
-        swallowClick.current = true;
-        onReorder(d.id, d.to);
+      if (!d) {
+        setDrag(null);
+        return;
       }
+      swallowClick.current = true;
+      /* dx auf null: die Karte folgt nicht mehr dem Zeiger, sondern gleitet in
+         ihre Lücke. Gespeichert wird erst, wenn sie dort ist – sonst springt sie. */
+      setDrag({ ...d, dx: null });
+      window.setTimeout(() => {
+        if (d.to !== d.from) onReorder(d.id, d.to);
+        setDrag(null);
+      }, SETTLE_MS);
     };
 
     window.addEventListener("pointermove", move);
@@ -194,18 +207,32 @@ export function PresetBar({
             }}
             style={
               isDragged
-                ? { transform: `translate3d(${drag!.dx}px, -5px, 0) scale(1.035)`, zIndex: 20, cursor: "grabbing" }
+                ? drag!.dx === null
+                  ? {
+                      transform: `translateX(${(drag!.to - drag!.from) * geometry.current.pitch}px)`,
+                      zIndex: 20,
+                      cursor: "grabbing",
+                      transition: `transform ${SETTLE_MS}ms ${GLIDE}`,
+                    }
+                  : {
+                      transform: `translate3d(${drag!.dx}px, -5px, 0) scale(1.035)`,
+                      zIndex: 20,
+                      cursor: "grabbing",
+                      transition: "none",
+                    }
                 : shift
                   ? { transform: `translateX(${shift * geometry.current.pitch}px)` }
                   : undefined
             }
             className={cn(
-              "group relative flex w-[236px] shrink-0 select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,opacity] duration-200 ease-out active:scale-[0.985] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
-              selected ? "shadow-[0_0_0_2px_var(--accent),var(--sh-card)]" : "hover:-translate-y-[1px]",
+              "group relative flex w-[236px] shrink-0 cursor-pointer select-none items-center gap-3 rounded-[18px] bg-surface py-3 pl-3 pr-3 text-left shadow-card transition-[box-shadow,transform,opacity,background-color] duration-[300ms] ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.985] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
+              /* Ausgewählt heißt: die ganze Karte trägt die Farbe, nicht nur ihr Rand. */
+              selected
+                ? "bg-[color-mix(in_srgb,var(--accent)_11%,var(--surface))] shadow-[0_0_0_2px_var(--accent),var(--sh-card)]"
+                : "hover:-translate-y-[1px]",
               disabled && !selected && "pointer-events-none opacity-40",
               disabled && selected && "opacity-70",
-              isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)] transition-none",
-              !disabled && !drag && "cursor-grab"
+              isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)]"
             )}
           >
             <PresetIcon icon={p.icon} size={42} />

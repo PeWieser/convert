@@ -778,6 +778,35 @@ Rückmeldungen aus der Benutzung, alle umgesetzt:
   liegt als reine Funktion in `lib/order.ts` (`slotShift`, `moveTo`) und ist getestet —
   Umsortieren ist genau die Art Logik, die still falsch wird.
 
+### Nachtrag: Feinschliff nach dem zweiten Ausprobieren
+
+- **Schnellstart funktioniert jetzt in jeder Größe (P2-12).** `in-memory` hält die
+  fertige Datei bis zum Abschluss im Arbeitsspeicher; ab etwa einem Gigabyte wurde
+  Schnellstart deshalb still fallengelassen — der Schalter versprach etwas, das nicht
+  passierte. Jetzt gilt: bis 1 GB `in-memory`, darüber `fragmented`. Fragmentiertes
+  MP4 schreibt die Metadaten ebenfalls nach vorn, braucht aber keinen Speicher
+  proportional zur Dateigröße. Die Preset-Zeile sagt das in einem Satz.
+- **Kommentare gehören nicht in JSX-Kinder.** Ein `/* … */` zwischen zwei Elementen
+  ist kein Kommentar, sondern Text — er stand sichtbar im Drehen-Reiter. Entfernt,
+  und alle Komponenten daraufhin geprüft. Begleitprosa ohne Handlungswert ist
+  ebenfalls raus: Der Wiedergabe-Reiter zeigt jetzt schlicht keinen Text mehr, die
+  Bühne ist die Wiedergabe. Geblieben sind Sätze, die einen Zustand melden
+  (Browser spielt das Format nicht) oder eine Abwesenheit begründen (Tondatei) —
+  dieselbe Familie wie die Hinweistexte im Preset-Editor.
+- **Ziehen auf der Zeitleiste führt das Bild mit.** Anhalten, Stelle zeigen,
+  weiterspielen — beim Laufkopf und bei den Schnittgriffen, in jedem Werkzeug.
+  Ein Lineal, dessen Bild nicht mitläuft, ist keins.
+- **Presets gleiten, sie springen nicht.** Nach dem Loslassen folgt die Karte nicht
+  mehr dem Zeiger, sondern fährt in ihrer eigenen Bewegung in die Lücke
+  (`cubic-bezier(0.32, 0.72, 0, 1)`, 340 ms); erst danach wird die Reihenfolge
+  gespeichert. Die Kurve ist die der App — Segmented und Bühne nutzen sie schon.
+- **Die ausgewählte Karte färbt sich.** Bisher trug nur ein 2px-Rand die Farbe, die
+  Fläche blieb weiß. Jetzt mischt sich das Akzentblau mit 11 % in die Kartenfläche,
+  in Hell wie Dunkel. Auswahl ist ein Zustand der Karte, nicht ihrer Umrandung.
+- **Der Zeiger ist ein Zeiger.** `cursor-grab` auf jeder Karte suggerierte Dauerziehen;
+  die Faust erscheint nur noch, während tatsächlich gezogen wird. Sonst zeigt die
+  Karte den Zeiger wie jedes anklickbare Element.
+
 ---
 
 ## Teil 7 — Offene Punkte für später
@@ -809,7 +838,7 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
 | 9 | P1 | „Stoppen" ohne Bestätigung | `Footer.tsx:373` | behoben (Phase 1) |
 | 10 | P2 | GPU-Erkennung über deprecated WebGL-API | `hardware.ts:12-18` | offen |
 | 11 | P2 | `-map 0:v?` mit globalem `-vf` bricht bei mehreren Videospuren | `ffmpeg.ts:71,114` | teilweise — Filterkette geordnet, `-map` unverändert |
-| 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` | offen |
+| 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` | behoben |
 | 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` | behoben (Phase 4a) |
 | 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` | teilweise — Menü auf der Karte, Grid-Picker offen |
 | 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` | offen |

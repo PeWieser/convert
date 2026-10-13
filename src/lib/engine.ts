@@ -44,7 +44,7 @@ import type {
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputHandle } from "./fsa";
-import { resolveJob } from "./job";
+import { estimateOutputBytes, resolveJob } from "./job";
 import type { Job } from "./job";
 import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
 
@@ -309,7 +309,7 @@ export function isCanceled(e: unknown): boolean {
 
 type Hw = "prefer-hardware" | "no-preference" | "prefer-software";
 
-function makeFormat(p: Preset, fastStart: false | "in-memory"): OutputFormat {
+function makeFormat(p: Preset, fastStart: false | "in-memory" | "fragmented"): OutputFormat {
   switch (p.container) {
     case "mp4":
       return new Mp4OutputFormat({ fastStart });
@@ -441,7 +441,20 @@ async function attempt(
     ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
     : new BufferTarget();
   const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
-  const fast: false | "in-memory" = wantsFast && req.source.file.size < 1_200_000_000 ? "in-memory" : false;
+  /*
+   * "in-memory" hält die fertige Datei bis zum Abschluss im Arbeitsspeicher – bis
+   * etwa ein Gigabyte vertretbar. Früher wurde Schnellstart darüber still
+   * fallengelassen: Der Schalter versprach etwas, das nicht passierte.
+   * Fragmentiertes MP4 schreibt die Metadaten ebenfalls nach vorn, braucht aber
+   * keinen Speicher proportional zur Dateigröße. Damit funktioniert Schnellstart
+   * in jeder Größe, statt ab einer Grenze heimlich auszuziehen.
+   */
+  const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file.size;
+  const fast: false | "in-memory" | "fragmented" = !wantsFast
+    ? false
+    : expected < 1_000_000_000
+      ? "in-memory"
+      : "fragmented";
   const output = new Output({ format: makeFormat(p, fast), target });
 
   let conversion: Conversion | null = null;

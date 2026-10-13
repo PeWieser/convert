@@ -161,11 +161,27 @@ export function FileInspector({
     if (v && tool === "crop") v.pause();
   }, [tool]);
 
-  const seek = (t: number) => {
+  /** Ob das Ziehen auf der Leiste begonnen hat, während noch gespielt wurde. */
+  const wasPlaying = useRef(false);
+
+  /**
+   * Setzt die Stelle. `start`/`end` rahmen ein Ziehen ein: anhalten, Stelle zeigen,
+   * weiterspielen. So läuft das Bild beim Rutschen über die Leiste mit – in jedem
+   * Werkzeug, auch beim Zuschneiden und beim Ziehen der Schnittgriffe.
+   */
+  const seek = (t: number, phase: "start" | "move" | "end" = "move") => {
     const v = videoRef.current;
     if (!v || !duration) return;
+    if (phase === "start") {
+      wasPlaying.current = !v.paused;
+      v.pause();
+    }
     v.currentTime = Math.max(0, Math.min(duration, t));
     setNow(v.currentTime);
+    if (phase === "end" && wasPlaying.current) {
+      wasPlaying.current = false;
+      void v.play();
+    }
   };
 
   /* ── Beschnitt ziehen ── */
@@ -415,14 +431,8 @@ export function FileInspector({
           </div>
 
           {/* ── Werkzeug ── */}
+          {tool !== "play" && (
           <div className="shrink-0 space-y-3 border-t border-sep px-6 py-4">
-            {tool === "play" && (
-              <p className="text-[13px] leading-relaxed text-label2">
-                Doppelklick spielt die Datei. Links wählst du, was mit ihr passieren soll – gedreht, beschnitten oder
-                gekürzt wird sie erst beim Konvertieren.
-              </p>
-            )}
-
             {tool === "rotate" && (
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-1.5">
@@ -441,8 +451,6 @@ export function FileInspector({
                     <RotateCw className="h-4 w-4" />
                   </button>
                 </div>
-                /* Keine Gradzahlen – das Bild selbst ist die Rückmeldung,
-                   und was hinten herauskommt, sagt das Ergebnismaß. */
                 <span className="tnum ml-auto text-[12.5px] text-label2">
                   {rotW} × {rotH} px
                 </span>
@@ -494,6 +502,7 @@ export function FileInspector({
               </div>
             )}
           </div>
+          )}
         </div>
       </div>
 
@@ -548,37 +557,58 @@ function Track({
   t0: number;
   t1: number;
   showTrim: boolean;
-  onSeek: (t: number) => void;
+  onSeek: (t: number, phase: "start" | "move" | "end") => void;
   onTrim: (start: number, end: number) => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const trimRef = useRef(onTrim);
   trimRef.current = onTrim;
-  const [pull, setPull] = useState<null | "start" | "end">(null);
+  const seekRef = useRef(onSeek);
+  seekRef.current = onSeek;
+
+  /** Was gerade gezogen wird: der Laufkopf oder einer der Schnittgriffe. */
+  const [active, setActive] = useState<null | { kind: "scrub" } | { kind: "pull"; side: "start" | "end" }>(null);
   /** Zeit unter dem Zeiger – die Leiste ist sonst ein Lineal ohne Zahlen. */
   const [hover, setHover] = useState<number | null>(null);
   const pct = (t: number) => (duration ? `${Math.max(0, Math.min(100, (t / duration) * 100))}%` : "0%");
 
+  const timeAt = (clientX: number): number | null => {
+    const r = ref.current?.getBoundingClientRect();
+    if (!r || !duration) return null;
+    return round(Math.max(0, Math.min(duration, ((clientX - r.left) / r.width) * duration)));
+  };
+
   useEffect(() => {
-    if (!pull) return;
+    if (!active) return;
     const move = (e: PointerEvent) => {
-      const r = ref.current?.getBoundingClientRect();
-      if (!r || !duration) return;
-      const t = round(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration)));
-      if (pull === "start") trimRef.current(Math.min(t, t1 - 0.1), t1);
-      else trimRef.current(t0, Math.max(t, t0 + 0.1));
+      const t = timeAt(e.clientX);
+      if (t === null) return;
+      if (active.kind === "scrub") {
+        seekRef.current(t, "move");
+        return;
+      }
+      const clamped = active.side === "start" ? Math.min(t, t1 - 0.1) : Math.max(t, t0 + 0.1);
+      if (active.side === "start") trimRef.current(clamped, t1);
+      else trimRef.current(t0, clamped);
+      seekRef.current(clamped, "move");
     };
-    const up = () => setPull(null);
+    const up = (e: PointerEvent) => {
+      const t = timeAt(e.clientX);
+      if (t !== null) seekRef.current(t, "end");
+      setActive(null);
+    };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
-  }, [pull, duration, t0, t1]);
+  }, [active, duration, t0, t1]);
 
   /* Beim Ziehen eines Griffs gilt dessen Zeit, sonst die Stelle unter dem Zeiger. */
-  const tip = pull ? (pull === "start" ? t0 : t1) : hover;
+  const tip = active?.kind === "pull" ? (active.side === "start" ? t0 : t1) : hover;
   const tipPct = duration && tip !== null ? Math.max(6, Math.min(94, (tip / duration) * 100)) : 0;
 
   return (
@@ -586,14 +616,14 @@ function Track({
       ref={ref}
       className="relative h-6 flex-1 cursor-pointer touch-none select-none rounded-md bg-fill"
       onPointerDown={(e) => {
-        const r = ref.current?.getBoundingClientRect();
-        if (!r || !duration) return;
-        onSeek(round(((e.clientX - r.left) / r.width) * duration));
+        const t = timeAt(e.clientX);
+        if (t === null) return;
+        seekRef.current(t, "start");
+        setActive({ kind: "scrub" });
       }}
       onPointerMove={(e) => {
-        const r = ref.current?.getBoundingClientRect();
-        if (!r || !duration || pull) return;
-        setHover(round(Math.max(0, Math.min(duration, ((e.clientX - r.left) / r.width) * duration))));
+        if (active) return;
+        setHover(timeAt(e.clientX));
       }}
       onPointerLeave={() => setHover(null)}
     >
@@ -609,7 +639,7 @@ function Track({
           <div className="absolute inset-y-0 right-0 rounded-r-md bg-black/15 dark:bg-white/10" style={{ width: `calc(100% - ${pct(t1)})` }} />
         </>
       )}
-      {/* Playhead */}
+      {/* Laufkopf */}
       <div className="pointer-events-none absolute inset-y-[-3px] w-[2px] rounded-full bg-accent" style={{ left: pct(now) }} />
       {/* Griffe */}
       {showTrim &&
@@ -619,7 +649,8 @@ function Track({
             onPointerDown={(e) => {
               e.stopPropagation();
               e.preventDefault();
-              setPull(side);
+              seekRef.current(side === "start" ? t0 : t1, "start");
+              setActive({ kind: "pull", side });
             }}
             className="absolute top-1/2 h-5 w-[9px] -ml-[4.5px] -translate-y-1/2 cursor-ew-resize rounded-[3px] bg-white shadow-[0_1px_3px_rgba(0,0,0,0.35)] ring-1 ring-black/10"
             style={{ left: pct(side === "start" ? t0 : t1) }}
