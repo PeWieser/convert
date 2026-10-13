@@ -807,6 +807,24 @@ Rückmeldungen aus der Benutzung, alle umgesetzt:
   die Faust erscheint nur noch, während tatsächlich gezogen wird. Sonst zeigt die
   Karte den Zeiger wie jedes anklickbare Element.
 
+### Nachtrag: Subset-Konvertieren (P2-15)
+
+Zwanzig Dateien in der Liste, drei davon wollen neu — bisher hieß das: alles oder
+nichts. Jetzt trägt eine Datei eine Auswahl: `⌘/Strg-Klick` markiert, `⌘/Strg + A`
+markiert alle bereiten, `Esc` hebt auf. Eine markierte Zeile mischt das Akzentblau
+in ihre Fläche und trägt ein Häkchen an der Vorschau — derselbe Auftritt wie die
+ausgewählte Preset-Karte, damit Auswahl in der App überall gleich aussieht.
+
+Wichtig ist, was die Auswahl *nicht* ist: kein dauerhafter Modus und kein Filter.
+Ist sie leer, gilt der Lauf allen Dateien wie zuvor. Sobald sie gefüllt ist, meinen
+**alle** Zahlen im Footer genau die Markierten — Dauer, Schätzung, Knopfbeschriftung
+(`Auswahl konvertieren`, daneben `Auswahl aufheben`). Eine Auswahl, die nur den Knopf
+beträfe, wäre eine Lüge über den Rest der Zeile.
+
+Offen bleibt die Entdeckbarkeit: Der Weg führt über einen Tooltip und das README,
+nicht über ein sichtbares Bedienelement. Ein Kontextmenü auf der Zeile wäre der
+sichtbare Weg; das ist bewusst gespart, bis klar ist, ob die Auswahl im Alltag trägt.
+
 ---
 
 ## Teil 7 — Offene Punkte für später
@@ -841,6 +859,6 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
 | 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` | behoben |
 | 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` | behoben (Phase 4a) |
 | 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` | teilweise — Menü auf der Karte, Grid-Picker offen |
-| 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` | offen |
+| 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` | behoben — Auswahl per ⌘/Strg-Klick |
 | 16 | P2 | Kein Plattform-Seam; `Target` nicht serialisierbar | `fsa.ts:184`, `engine.ts:9` | teilweise — `job.ts` steht, `MediaEngine`/`PlatformFS` fehlen |
 | 17 | P2 | Repo-Hygiene: Name, Version, README, Tests, Lint, CI, Lizenz | `package.json`, `README.md` | teilweise — Tests ja, Lint/CI nein |

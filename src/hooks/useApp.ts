@@ -55,6 +55,11 @@ export function useApp() {
   const [planning, setPlanning] = useState(false);
   const [overall, setOverall] = useState<Overall | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /**
+   * Ausgewählte Dateien. Ist die Liste leer, gilt der Lauf allen – Auswahl ist
+   * eine bewusste Einschränkung, kein dauerhafter Modus.
+   */
+  const [selected, setSelected] = useState<string[]>([]);
   const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
   const hardware = useMemo(() => detectHardware(), []);
 
@@ -262,7 +267,18 @@ export function useApp() {
     [addSources, settings.outFolderName]
   );
 
+  const toggleSelect = useCallback((id: string) => {
+    setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelected(itemsRef.current.filter((i) => i.status === "ready" && i.info).map((i) => i.id));
+  }, []);
+
+  const clearSelection = useCallback(() => setSelected([]), []);
+
   const remove = useCallback((id: string) => {
+    setSelected((prev) => prev.filter((x) => x !== id));
     setItems((prev) => {
       const gone = prev.find((i) => i.id === id);
       if (gone?.thumb) URL.revokeObjectURL(gone.thumb);
@@ -272,10 +288,11 @@ export function useApp() {
 
   const clear = useCallback(() => {
     setItems((prev) => {
-      prev.forEach((i) => {
-        if (i.status !== "converting" && i.status !== "queued" && i.thumb) URL.revokeObjectURL(i.thumb);
-      });
-      return prev.filter((i) => i.status === "converting" || i.status === "queued");
+      /* Laufende Dateien bleiben – was arbeitet, lässt sich nicht wegkehren. */
+      const kept = prev.filter((i) => i.status === "converting" || i.status === "queued");
+      for (const i of prev) if (i.thumb && !kept.includes(i)) URL.revokeObjectURL(i.thumb);
+      setSelected((sel) => sel.filter((id) => kept.some((k) => k.id === id)));
+      return kept;
     });
   }, []);
 
@@ -353,7 +370,10 @@ export function useApp() {
 
   const start = useCallback(async () => {
     if (running || planning) return;
-    const todo = itemsRef.current.filter((i) => i.status === "ready" && i.info);
+    const scope = selected.length ? selected : null;
+    const todo = itemsRef.current.filter(
+      (i) => i.status === "ready" && i.info && (!scope || scope.includes(i.id))
+    );
     if (!todo.length || itemsRef.current.some((i) => i.status === "checking")) return;
 
     const ac = new AbortController();
@@ -504,6 +524,10 @@ export function useApp() {
     clear,
     retry,
     retryFailed,
+    selected,
+    toggleSelect,
+    selectAll,
+    clearSelection,
     chooseDestination,
     useCustomDestination,
     forgetDestinations,

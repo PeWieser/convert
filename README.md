@@ -44,6 +44,9 @@ Zielgröße und Kopier-Entscheidung einmal aus, beide Engines bedienen sich dara
   `⌘/Strg + ,` Einstellungen · `Esc` schließt
 - Im Inspektor: `Leertaste` spielt/pausiert · `←`/`→` spulen 5 s · mit `⇧` 1 s
 - `Strg/⌘ + ←/→` verschiebt das gewählte Preset (Ziehen mit der Maus geht auch)
+- `⌘/Strg-Klick` auf eine Datei wählt sie aus, `⌘/Strg + A` alle, `Esc` hebt auf.
+  Mit Auswahl konvertiert der Knopf nur die Markierten — Dauer und Schätzung
+  im Footer meinen dann genau diese Dateien.
 
 Das Ziel ergibt sich von selbst: Dateien aus einem Ordner landen im Unterordner
 „Konvertiert" neben den Originalen, einzelne Dateien im gemerkten Quellordner,
@@ -123,8 +126,8 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
       „Einfach | Profi", fester Rahmen, `Abbrechen`/`Fertig` unten rechts, Änderungs-Haken
       pro Wert, drei Punkte mit Menü
       (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
-- [ ] **Phase 4b** — Einstellungen gliedern, Preset-Verwaltung bei vielen Einträgen
-      (Umsortieren per Ziehen ist erledigt)
+- [x] **Phase 4b (teilweise)** — Preset-Verwaltung: Umsortieren per Ziehen, Auswahl-Konvertieren.
+      Offen bleibt der Grid-Picker ab etwa sechs Einträgen
 - [ ] **Phase 5** — Windows-App: Electron + FFmpeg
 
 ## Lizenzen

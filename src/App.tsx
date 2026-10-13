@@ -95,9 +95,17 @@ export default function App() {
       const t = e.target as HTMLElement | null;
       const typing =
         !!t && (t.isContentEditable || t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement);
+      /* Esc räumt die Auswahl weg – solange kein Fenster offen ist, dem es gehört. */
+      if (e.key === "Escape" && !editor && !showSettings && !inspecting && app.selected.length) {
+        app.clearSelection();
+        return;
+      }
       if (!(e.metaKey || e.ctrlKey) || typing || editor || showSettings || inspecting) return;
       const k = e.key.toLowerCase();
-      if (k === "o") {
+      if (k === "a") {
+        e.preventDefault();
+        if (!busy) app.selectAll();
+      } else if (k === "o") {
         e.preventDefault();
         if (!busy) void (e.shiftKey ? app.addFolder() : app.addFiles());
       } else if (k === "enter") {
@@ -175,6 +183,9 @@ export default function App() {
             onRetry={app.retry}
             onClear={app.clear}
             onOpen={busy ? undefined : openInspector}
+            selected={app.selected}
+            onToggleSelect={app.toggleSelect}
+            onClearSelection={app.clearSelection}
           />
         </div>
       </main>
@@ -196,6 +207,8 @@ export default function App() {
           onUseAuto={() => app.updateSettings({ destination: "auto" })}
           onUseCustom={app.useCustomDestination}
           onDismissNotice={app.dismissNotice}
+          selected={app.selected}
+          onClearSelection={app.clearSelection}
         />
       )}
 

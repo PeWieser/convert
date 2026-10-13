@@ -36,6 +36,8 @@ export function Footer({
   onUseAuto,
   onUseCustom,
   onDismissNotice,
+  selected,
+  onClearSelection,
 }: {
   items: Item[];
   preset: Preset;
@@ -53,6 +55,9 @@ export function Footer({
   onUseAuto: () => void;
   onUseCustom: () => void;
   onDismissNotice: () => void;
+  /** Leer heißt: der Lauf gilt allen. Sonst nur den markierten Dateien. */
+  selected: string[];
+  onClearSelection: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -68,13 +73,15 @@ export function Footer({
   }, [running]);
 
   const ready = items.filter((i) => i.status === "ready" && i.info);
+  /* Eine Auswahl schränkt den Lauf ein – und damit jede Zahl, die ihn beschreibt. */
+  const scope = selected.length ? ready.filter((i) => selected.includes(i.id)) : ready;
   const checking = items.some((i) => i.status === "checking");
   const doneCount = items.filter((i) => i.status === "done").length;
   const failedCount = items.filter((i) => i.status === "failed").length;
   const finished = !running && items.some((i) => i.attempted) && ready.length === 0 && !checking;
   const retryable = items.filter((i) => i.status === "failed" && !i.final).length;
-  const readyDuration = ready.reduce((s, i) => s + (i.info?.duration ?? 0), 0);
-  const readyBytes = ready.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info) : 0), 0);
+  const readyDuration = scope.reduce((s, i) => s + (i.info?.duration ?? 0), 0);
+  const readyBytes = scope.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info, i.adjustments) : 0), 0);
 
   const custom = settings.destination === "custom" && !!settings.customDestinationName;
   const anyFolderSource = items.some((i) => i.source.root);
@@ -133,7 +140,7 @@ export function Footer({
   } else if (ready.length) {
     status = (
       <div className="tnum truncate text-[13px] text-label2">
-        {plural(ready.length, "Datei", "Dateien")}
+        {selected.length ? `${scope.length} von ${ready.length} ausgewählt` : plural(ready.length, "Datei", "Dateien")}
         {readyDuration > 0 && ` · ${formatDuration(readyDuration)}`}
         {readyBytes > 0 && ` · ca. ${formatBytes(readyBytes)}`}
       </div>
@@ -222,9 +229,16 @@ export function Footer({
             </Btn>
           </>
         ) : (
-          <Btn variant="primary" size="lg" onClick={onStart} disabled={!ready.length || checking || planning}>
-            Konvertieren
-          </Btn>
+          <>
+            {selected.length > 0 && (
+              <Btn variant="ghost" onClick={onClearSelection}>
+                Auswahl aufheben
+              </Btn>
+            )}
+            <Btn variant="primary" size="lg" onClick={onStart} disabled={!scope.length || checking || planning}>
+              {selected.length ? "Auswahl konvertieren" : "Konvertieren"}
+            </Btn>
+          </>
         )}
       </div>
     </footer>
