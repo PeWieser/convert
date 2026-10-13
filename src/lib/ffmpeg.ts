@@ -77,15 +77,25 @@ export function buildFfmpegCommand(
   if (adj.trim?.start) head.push("-ss", String(adj.trim.start));
   if (adj.trim?.end) head.push("-to", String(adj.trim.end));
   head.push("-i", quote(input));
-  head.push("-map", "0:v?", "-map", "0:a?");
-  if (c.kind === "video" && p.subtitles === "keep" && p.container !== "ts") head.push("-map", "0:s?");
+  /*
+   * Genau eine Bild- und eine Tonspur, die erste jeder Art. `0:v?` ohne Index
+   * mappte früher ALLE Videospuren – mit einer globalen Filterkette davor bricht
+   * der Befehl bei Dateien mit zwei Bildspuren (Befund P2-11). Wer explizit
+   * mappt, schaltet die Automatik aus; `-vn` wird damit überflüssig.
+   */
+  if (c.kind === "audio" || v.codec === "none") {
+    head.push("-map", "0:a:0?");
+  } else {
+    head.push("-map", "0:v:0?", "-map", "0:a:0?");
+    if (p.subtitles === "keep" && p.container !== "ts") head.push("-map", "0:s?");
+  }
 
   const video: string[] = [];
   let family: Family = "sw";
   let secondPass: string[] | null = null;
 
   if (c.kind === "audio" || v.codec === "none") {
-    video.push("-vn");
+    /* nichts zu tun – es ist gar keine Bildspur gemappt */
   } else if (v.codec === "copy") {
     video.push("-c:v", "copy");
   } else {

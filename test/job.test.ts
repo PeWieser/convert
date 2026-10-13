@@ -137,6 +137,16 @@ const plain = buildFfmpegCommand(preset, hw, false);
 eq("ohne Anpassungen steht nichts Überflüssiges im Befehl", [plain.includes("crop="), plain.includes("transpose"), plain.includes("-ss")], [false, false, false]);
 eq("180° wird zu zwei Spiegelungen", buildFfmpegCommand(preset, hw, false, "q.mkv", { rotate: 180 }).includes("hflip,vflip"), true);
 eq("270° dreht andersherum", buildFfmpegCommand(preset, hw, false, "q.mkv", { rotate: 270 }).includes("transpose=2"), true);
+/* P2-11: `0:v?` mappte alle Bildspuren und brach mit globaler Filterkette. */
+eq("genau eine Bildspur", buildFfmpegCommand(preset, hw, false).includes("-map 0:v:0?"), true);
+eq("kein Sammel-Mapping mehr", buildFfmpegCommand(preset, hw, false).includes("-map 0:v? "), false);
+eq("genau eine Tonspur", buildFfmpegCommand(preset, hw, false).includes("-map 0:a:0?"), true);
+const audioPreset = { ...preset, container: "mp3" as const, video: { ...preset.video, codec: "none" as const } };
+eq("reiner Ton mappt kein Bild", buildFfmpegCommand(audioPreset, hw, false).includes("0:v"), false);
+const keepSubs = buildFfmpegCommand({ ...preset, subtitles: "keep" }, hw, false);
+const burnSubs = buildFfmpegCommand({ ...preset, subtitles: "burn" }, hw, false);
+eq("Untertitel behalten: Spuren mappen", keepSubs.includes("-map 0:s?"), true);
+eq("Untertitel einbrennen: nicht mappen", burnSubs.includes("-map 0:s?"), false);
 
 /* ── Änderung erkennen ── */
 

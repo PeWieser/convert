@@ -857,11 +857,9 @@ sichtbare Weg; das ist bewusst gespart, bis klar ist, ob die Auswahl im Alltag t
 
 Nicht eilig, aber vor Phase 5 zu entscheiden:
 
-- **FFmpeg-Lizenz:** LGPL-Build (ohne `libx264`, nur native Encoder + `libsvtav1`/`libvpx`)
-  oder GPL-Build (mit `libx264`/`libx265`, dafür muss die Desktop-App als GPL verteilt werden).
-  Betrifft nur die Windows-App.
-- **Distribution:** Installer-Signatur (Azure Trusted Signing / OV-Zertifikat),
-  Update-Kanal, Store oder direkter Download.
+- **FFmpeg-Lizenz:** geklärt am 2026-10-14 — GPL-Build, siehe `docs/DESKTOP-PLAN.md` §8.
+- **Distribution:** geklärt am 2026-10-14 — erst unsigniert (SmartScreen-Warnung als
+  bewusster Preis), Signatur folgt mit Zertifikat. Update-Kanal und Store bleiben offen.
 - **Presets bei vielen Einträgen:** Rail bleibt bis ca. 6 Presets; danach Grid-Picker.
   Wird in Phase 4 entschieden, wenn die Verwaltung steht.
 
@@ -881,7 +879,7 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
 | 8 | P1 | „Fertig" löscht Fehler samt Begründung | `Footer.tsx:252,377-380` | behoben (Phase 1) |
 | 9 | P1 | „Stoppen" ohne Bestätigung | `Footer.tsx:373` | behoben (Phase 1) |
 | 10 | P2 | GPU-Erkennung über deprecated WebGL-API | `hardware.ts:12-18` | offen |
-| 11 | P2 | `-map 0:v?` mit globalem `-vf` bricht bei mehreren Videospuren | `ffmpeg.ts:71,114` | teilweise — Filterkette geordnet, `-map` unverändert |
+| 11 | P2 | `-map 0:v?` mit globalem `-vf` bricht bei mehreren Videospuren | `ffmpeg.ts:71,114` | behoben — eine Bild-, eine Tonspur |
 | 12 | P2 | Schnellstart ab 1,2 GB stillschweigend weg | `engine.ts:432-433` | behoben |
 | 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` | behoben (Phase 4a) |
 | 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` | teilweise — Menü auf der Karte, Grid-Picker offen |

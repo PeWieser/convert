@@ -135,4 +135,6 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
 ## Lizenzen
 
 Mediabunny (MIT) · React (MIT) · Tailwind CSS (MIT) · lucide-react (ISC).
-FFmpeg kommt in Phase 5 dazu — die Wahl zwischen LGPL- und GPL-Build ist dort dokumentiert.
+FFmpeg kommt in Phase 5 dazu, als GPL-Build und nur auf Nachfrage geladen: Die App ruft es
+als getrennten Prozess und bleibt dadurch selbst Lizenz-neutral. Einzelheiten in
+[`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md).
