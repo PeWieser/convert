@@ -13,6 +13,7 @@ import { buildFfmpegCommand } from "../src/lib/ffmpeg";
 import { clampCrop, estimateOutputBytes, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
 import { moveTo, slotShift } from "../src/lib/order";
 import { defaultPresets } from "../src/lib/presets";
+import { chooseName } from "../src/lib/platform";
 import type { HardwareInfo, MediaInfo, Preset } from "../src/lib/types";
 
 /* ── Kleines Prüfgerüst, damit kein Framework nötig ist ── */
@@ -171,6 +172,18 @@ eq("moveTo nach vorn", moveTo(["a", "b", "c", "d"], 3, 1), ["a", "d", "b", "c"])
 eq("moveTo ganz nach vorn", moveTo(["a", "b", "c"], 2, 0), ["c", "a", "b"]);
 eq("moveTo klemmt ans Ende", moveTo(["a", "b", "c"], 0, 99), ["b", "c", "a"]);
 eq("moveTo mit fremder Stelle ändert nichts", moveTo(["a", "b"], 7, 0), ["a", "b"]);
+
+/* ── Namensvergabe an der Plattform-Naht ── */
+
+group("Namensregel");
+/* Dieselbe Regel gilt im Browser (Download-Ordner, gewählter Ordner) und auf dem
+   Desktop (Node `fs`) – nur `exists` kommt aus einer anderen Quelle. */
+eq("ohne Konflikt bleibt der Name", chooseName("Urlaub", "mp4", () => false, "skip", false), "Urlaub.mp4");
+eq("„Überspringen“ lässt belegte Namen aus", chooseName("Urlaub", "mp4", () => true, "skip", false), null);
+eq("„Nummerieren“ zählt hoch, bis ein Name frei ist", chooseName("Urlaub", "mp4", (n) => n !== "Urlaub 3.mp4", "number", false), "Urlaub 3.mp4");
+eq("„Ersetzen“ schreibt in dieselbe Datei", chooseName("Urlaub", "mp4", () => true, "overwrite", false), "Urlaub.mp4");
+eq("„Ersetzen“ vernichtet nie die Quelle", chooseName("Urlaub", "mp4", (n) => n === "Urlaub.mp4", "overwrite", true), "Urlaub 2.mp4");
+eq("die Suche endet auch, wenn alles belegt scheint", chooseName("Urlaub", "mp4", () => true, "number", false), "Urlaub 1000.mp4");
 
 /* ── Ergebnis ── */
 

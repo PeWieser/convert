@@ -1,17 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ConvertError, convert, initEngine, isCanceled, probe } from "../lib/engine";
-import { baseName, plural } from "../lib/format";
+import { ConvertError, webEngine } from "../lib/engine";
+import { plural } from "../lib/format";
 import { CONTAINERS } from "../lib/formats";
-import {
-  chooseCustomDestination,
-  collectFromDrop,
-  forgetFolders,
-  openOutput,
-  pickFiles,
-  pickFolder,
-  planTargets,
-} from "../lib/fsa";
-import type { Target } from "../lib/fsa";
+import { webFS } from "../lib/fsa";
+import type { MediaEngine, PlatformFS, Target } from "../lib/platform";
+
+/** Die Naht, an der die Desktop-App später eine andere Implementierung einsetzt. */
+const fs: PlatformFS = webFS;
+const engine: MediaEngine = webEngine;
 import { detectHardware } from "../lib/hardware";
 import { NO_ADJUSTMENTS } from "../lib/job";
 import { moveTo } from "../lib/order";
@@ -71,7 +67,7 @@ export function useApp() {
   const probeLimit = useRef(createLimiter(2)).current;
 
   useEffect(() => {
-    initEngine().then(setCaps);
+    engine.init().then(setCaps);
   }, []);
 
   const preset = useMemo(
@@ -233,9 +229,9 @@ export function useApp() {
 
       for (const s of accepted) {
         probeLimit(async () => {
-          let r: Awaited<ReturnType<typeof probe>>;
+          let r: Awaited<ReturnType<typeof engine.probe>>;
           try {
-            r = await probe(s);
+            r = await engine.probe(s);
           } catch {
             r = { health: { state: "broken", reason: "Die Datei konnte nicht gelesen werden." } };
           }
@@ -257,13 +253,13 @@ export function useApp() {
     [probeLimit]
   );
 
-  const addFiles = useCallback(async () => addSources(await pickFiles()), [addSources]);
+  const addFiles = useCallback(async () => addSources(await fs.pickFiles()), [addSources]);
   const addFolder = useCallback(
-    async () => addSources(await pickFolder(settings.outFolderName)),
+    async () => addSources(await fs.pickFolder(settings.outFolderName)),
     [addSources, settings.outFolderName]
   );
   const addDrop = useCallback(
-    async (dt: DataTransfer) => addSources(await collectFromDrop(dt, settings.outFolderName)),
+    async (dt: DataTransfer) => addSources(await fs.collectFromDrop(dt, settings.outFolderName)),
     [addSources, settings.outFolderName]
   );
 
@@ -315,8 +311,8 @@ export function useApp() {
   /* ───────── Ziel ───────── */
 
   const chooseDestination = useCallback(async () => {
-    const dir = await chooseCustomDestination();
-    if (dir) updateSettings({ destination: "custom", customDestinationName: dir.name });
+    const name = await fs.chooseCustomDestination();
+    if (name) updateSettings({ destination: "custom", customDestinationName: name });
   }, [updateSettings]);
 
   const useCustomDestination = useCallback(() => {
@@ -324,7 +320,7 @@ export function useApp() {
   }, [settings.customDestinationName, updateSettings]);
 
   const forgetDestinations = useCallback(async () => {
-    await forgetFolders();
+    await fs.forgetFolders();
     updateSettings({ destination: "auto", customDestinationName: "" });
   }, [updateSettings]);
 
@@ -382,7 +378,7 @@ export function useApp() {
 
     let targets: Map<string, Target>;
     try {
-      targets = await planTargets(
+      targets = await fs.planTargets(
         todo.map((i) => i.source),
         settings
       );
@@ -436,14 +432,14 @@ export function useApp() {
           patch(item.id, { status: "converting", progress: 0 });
           try {
             const target: Target = targets.get(item.id) ?? { kind: "download" };
-            const res = await convert({
+            const res = await engine.convert({
               source: item.source,
               info,
               preset: current,
               adj: item.adjustments,
               hardware: settings.hardware,
               signal: ac.signal,
-              openOutput: () => openOutput(target, baseName(item.source.name), ext, settings, item.source.handle),
+              openOutput: () => fs.open(target, item.source, ext, settings),
               onProgress: (fraction) => {
                 processed.set(item.id, fraction * dur);
                 const now = performance.now();
@@ -474,7 +470,7 @@ export function useApp() {
               });
             }
           } catch (e) {
-            if (isCanceled(e) || ac.signal.aborted) {
+            if (engine.isCanceled(e) || ac.signal.aborted) {
               patch(item.id, { status: "ready", progress: 0 });
             } else {
               processed.set(item.id, dur);
@@ -524,6 +520,7 @@ export function useApp() {
     clear,
     retry,
     retryFailed,
+    fsSupported: fs.supported,
     selected,
     toggleSelect,
     selectAll,

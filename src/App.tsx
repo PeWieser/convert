@@ -212,6 +212,7 @@ export default function App() {
           onDismissNotice={app.dismissNotice}
           selected={app.selected}
           onClearSelection={app.clearSelection}
+          fsSupported={app.fsSupported}
         />
       )}
 

@@ -6,7 +6,9 @@
  *   probe()       → Datei analysieren, Defekte erkennen, Vorschaubild
  *   convert()     → konvertieren (GPU zuerst), Defekte automatisch reparieren
  *
- * Die Windows-App ersetzt nur diese Datei (FFmpeg mit NVENC / AMF / QSV).
+ * Die UI kennt diese Datei nicht direkt: `platform.ts` beschreibt die Schnittstelle
+ * (`MediaEngine`), `webEngine` am Ende ist ihre Web-Implementierung. Die Windows-App bringt
+ * eine eigene mit (FFmpeg, NVENC / AMF / QSV) — `useApp` nimmt die passende.
  */
 import {
   ALL_FORMATS,
@@ -43,9 +45,10 @@ import type {
 } from "mediabunny";
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
-import type { OutputHandle } from "./fsa";
+import type { OutputSink } from "./platform";
 import { estimateOutputBytes, resolveJob } from "./job";
 import type { Job } from "./job";
+import type { MediaEngine } from "./platform";
 import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
 
 export const engineSupported: boolean =
@@ -282,7 +285,7 @@ export interface ConvertRequest {
   /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
   adj: Adjustments;
   hardware: "auto" | "off";
-  openOutput: () => Promise<OutputHandle | null>;
+  openOutput: () => Promise<OutputSink | null>;
   onProgress: (fraction: number, processedSeconds: number) => void;
   signal: AbortSignal;
 }
@@ -306,6 +309,13 @@ export class ConvertError extends Error {
 export function isCanceled(e: unknown): boolean {
   return e instanceof ConversionCanceledError || (e instanceof DOMException && e.name === "AbortError");
 }
+
+/**
+ * Die Web-Implementierung der Naht aus `platform.ts`.
+ * Die Desktop-App stellt dieselbe Schnittstelle gegen FFmpeg – die Oberfläche
+ * merkt den Unterschied nicht.
+ */
+export const webEngine: MediaEngine = { init: initEngine, probe, convert, isCanceled };
 
 type Hw = "prefer-hardware" | "no-preference" | "prefer-software";
 

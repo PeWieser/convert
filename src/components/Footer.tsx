@@ -3,7 +3,6 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
 import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
-import { fsaSupported } from "../lib/fsa";
 import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
 import { Btn, Menu, MenuItem } from "./ui";
@@ -59,6 +58,7 @@ export function Footer({
   onDismissNotice,
   selected,
   onClearSelection,
+  fsSupported,
 }: {
   items: Item[];
   preset: Preset;
@@ -79,6 +79,8 @@ export function Footer({
   /** Leer heißt: der Lauf gilt allen. Sonst nur den markierten Dateien. */
   selected: string[];
   onClearSelection: () => void;
+  /** Browser: ohne File System Access bleibt nur der Download-Ordner. */
+  fsSupported: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirmStop, setConfirmStop] = useState(false);
@@ -107,7 +109,7 @@ export function Footer({
   const custom = settings.destination === "custom" && !!settings.customDestinationName;
   const anyFolderSource = items.some((i) => i.source.root);
   const autoLabel = anyFolderSource ? "Neben den Originalen" : "Downloads";
-  const label = !fsaSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
+  const label = !fsSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
 
   let status: ReactNode = null;
   if (notice) {
@@ -177,7 +179,7 @@ export function Footer({
           <button
             ref={anchorRef}
             onClick={() => setOpen((o) => !o)}
-            disabled={running || planning || !fsaSupported}
+            disabled={running || planning || !fsSupported}
             className="flex h-9 items-center gap-2 rounded-full pl-2.5 pr-2 text-[13px] font-medium transition hover:bg-fill active:scale-[0.97] disabled:hover:bg-transparent"
             aria-haspopup="menu"
             aria-expanded={open}
@@ -185,7 +187,7 @@ export function Footer({
           >
             <FolderGlyph />
             <span className="max-w-[180px] truncate">{label}</span>
-            {fsaSupported && !running && (
+            {fsSupported && !running && (
               <ChevronDown className={`h-3.5 w-3.5 text-label2 transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
             )}
           </button>

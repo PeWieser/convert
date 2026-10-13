@@ -278,6 +278,19 @@ nicht serialisierbar über Electron-IPC. `useApp.ts` importiert `fsa.ts` direkt,
 > Es gibt heute **keine** Stelle, an der man „Web" gegen „Desktop" tauschen kann.
 > Das muss vor dem Electron-Code gebaut werden, sonst wird Electron ein Fork.
 
+**Stand 2026-10-14 — die Naht steht (Web-Seite).** `src/lib/platform.ts` trägt das
+gemeinsame Vokabular: `PlatformFS`, `MediaEngine`, `OutputSink`, `FolderRef` und ein
+`Target`, das reines JSON ist (`{ kind: "download" }` oder
+`{ kind: "folder", folder: { kind, id }, sub: string[] }`) und damit unverändert über
+Electron-IPC geht. Lebende Handles bleiben im Renderer, in einem Register in `fsa.ts`
+(`internFolder` / `resolveFolder`); der Desktop liefert unter derselben `id` einen Pfad.
+`fsa.ts` exportiert `webFS`, `engine.ts` exportiert `webEngine`, `useApp.ts` kennt nur noch
+diese beiden Namen und gibt `fsSupported` als Wert weiter — `Footer.tsx` fragt nicht mehr
+selbst die Plattform. Die Namensregel liegt als reine, getestete Funktion `chooseName` in
+`platform.ts`, damit beide Welten dieselbe Antwort geben.
+Noch offen aus diesem Befund: `hardware.ts` (WebGL) hat keine Entsprechung — die Wahrheit
+auf dem Desktop muss aus `ffmpeg -encoders` kommen (P2-10).
+
 ### P2-17 · Repo-Hygiene
 
 - `package.json`: `"name": "react-vite-tailwind"`, `"version": "0.0.0"` — so wird kein
@@ -862,6 +875,9 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
   bewusster Preis), Signatur folgt mit Zertifikat. Update-Kanal und Store bleiben offen.
 - **Presets bei vielen Einträgen:** Rail bleibt bis ca. 6 Presets; danach Grid-Picker.
   Wird in Phase 4 entschieden, wenn die Verwaltung steht.
+- **Nachtrag 2026-10-14:** Der Plattform-Seam (P2-16) ist gebaut — `src/lib/platform.ts`
+  mit `PlatformFS`, `MediaEngine`, `OutputSink` und `chooseName`. Was Phase 5 noch schuldet:
+  die Desktop-Implementierung selbst und eine Hardware-Wahrheit, die nicht von WebGL kommt.
 
 ---
 
@@ -884,5 +900,5 @@ Nicht eilig, aber vor Phase 5 zu entscheiden:
 | 13 | P2 | Preset-Editor: 563 Zeilen, zwei JSX-Bäume, endloser Profi-Scroll | `PresetEditor.tsx` | behoben (Phase 4a) |
 | 14 | P2 | Preset-Rail skaliert nicht, Verwaltung nur im Editor | `PresetBar.tsx:126` | teilweise — Menü auf der Karte, Grid-Picker offen |
 | 15 | P2 | Kein Subset-Konvertieren | `useApp.ts:275` | behoben — Auswahl per ⌘/Strg-Klick |
-| 16 | P2 | Kein Plattform-Seam; `Target` nicht serialisierbar | `fsa.ts:184`, `engine.ts:9` | teilweise — `job.ts` steht, `MediaEngine`/`PlatformFS` fehlen |
+| 16 | P2 | Kein Plattform-Seam; `Target` nicht serialisierbar | `platform.ts`, `fsa.ts`, `engine.ts` | behoben — Naht steht (`webFS`/`webEngine`, `Target` als JSON); Desktop-Implementierung folgt in Phase 5, `hardware.ts` bleibt offen (P2-10) |
 | 17 | P2 | Repo-Hygiene: Name, Version, README, Tests, Lint, CI, Lizenz | `package.json`, `README.md` | teilweise — Tests ja, Lint/CI nein |

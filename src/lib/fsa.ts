@@ -2,6 +2,9 @@
 import { isMediaName } from "./formats";
 import { uid } from "./format";
 import { idbDelete, idbGet, idbSet } from "./storage";
+import { baseName } from "./format";
+import { chooseName } from "./platform";
+import type { FolderRef, OutputSink, PlatformFS, Target } from "./platform";
 import type { Settings, SourceFile } from "./types";
 
 type DirHandle = FileSystemDirectoryHandle;
@@ -148,6 +151,30 @@ async function addKnownFolder(dir: DirHandle) {
   await idbSet("known-folders", list.slice(-40));
 }
 
+/* ───────────── Ordner-Register: Ort statt Gegenstand ───────────── */
+
+/**
+ * Die Handles leben hier, nicht im `Target`. Das Target trägt nur eine id und
+ * kann dadurch über Prozessgrenzen; auf dem Desktop wird dieselbe id ein Pfad.
+ */
+const folders = new Map<string, DirHandle>();
+const folderIds = new WeakMap<DirHandle, string>();
+let folderSeq = 0;
+
+function internFolder(handle: DirHandle, kind: FolderRef["kind"]): FolderRef {
+  let id = folderIds.get(handle);
+  if (!id) {
+    id = `f${++folderSeq}`;
+    folderIds.set(handle, id);
+    folders.set(id, handle);
+  }
+  return { kind, id };
+}
+
+function resolveFolder(ref: FolderRef): DirHandle | null {
+  return folders.get(ref.id) ?? null;
+}
+
 export async function forgetFolders() {
   await idbDelete("known-folders");
   await idbDelete("custom-destination");
@@ -180,8 +207,6 @@ async function ensureWritable(dir: DirHandle): Promise<boolean> {
 }
 
 /* ───────────── Zielplanung ───────────── */
-
-export type Target = { kind: "folder"; dir: DirHandle; sub: string[] } | { kind: "download" };
 
 export class TargetAccessError extends Error {
   constructor(message = "Auf den Zielordner kann nicht geschrieben werden. Wähle bitte einen anderen Ordner.") {
@@ -218,7 +243,7 @@ export async function planTargets(sources: SourceFile[], settings: Settings): Pr
     const dir = await getCustomDestination();
     if (!dir) throw new TargetAccessError("Der gespeicherte Zielordner ist nicht mehr verfügbar. Wähle bitte einen neuen Ordner.");
     if (!(await ensureWritable(dir))) throw new TargetAccessError();
-    sources.forEach((s) => result.set(s.id, { kind: "folder", dir, sub: [] }));
+    sources.forEach((s) => result.set(s.id, { kind: "folder", folder: internFolder(dir, "custom"), sub: [] }));
     return result;
   }
 
@@ -226,7 +251,7 @@ export async function planTargets(sources: SourceFile[], settings: Settings): Pr
   const unresolved: SourceFile[] = [];
   for (const s of sources) {
     if (s.root) {
-      result.set(s.id, { kind: "folder", dir: s.root, sub: [out, ...s.relDirs] });
+      result.set(s.id, { kind: "folder", folder: internFolder(s.root, "source"), sub: [out, ...s.relDirs] });
       continue;
     }
     let matched = false;
@@ -234,7 +259,7 @@ export async function planTargets(sources: SourceFile[], settings: Settings): Pr
       for (const k of known) {
         const path = await pathWithin(k.handle, s.handle);
         if (path) {
-          result.set(s.id, { kind: "folder", dir: k.handle, sub: [out, ...path.slice(0, -1)] });
+          result.set(s.id, { kind: "folder", folder: internFolder(k.handle, "known"), sub: [out, ...path.slice(0, -1)] });
           matched = true;
           break;
         }
@@ -251,10 +276,12 @@ export async function planTargets(sources: SourceFile[], settings: Settings): Pr
   const checked = new Map<DirHandle, boolean>();
   for (const t of result.values()) {
     if (t.kind !== "folder") continue;
-    let ok = checked.get(t.dir);
+    const dir = resolveFolder(t.folder);
+    if (!dir) throw new TargetAccessError();
+    let ok = checked.get(dir);
     if (ok === undefined) {
-      ok = await ensureWritable(t.dir);
-      checked.set(t.dir, ok);
+      ok = await ensureWritable(dir);
+      checked.set(dir, ok);
     }
     if (!ok) throw new TargetAccessError();
   }
@@ -262,14 +289,6 @@ export async function planTargets(sources: SourceFile[], settings: Settings): Pr
 }
 
 /* ───────────── Ausgabe ───────────── */
-
-export interface OutputHandle {
-  /** Wenn gesetzt, schreibt die Engine direkt auf die Festplatte, sonst in den Speicher. */
-  writable?: WritableStream;
-  place: string;
-  finish(blob?: Blob): Promise<number>;
-  discard(): Promise<void>;
-}
 
 const sanitize = (s: string) => s.replace(/[\\/:*?"<>|]/g, "_").replace(/\s+/g, " ").trim() || "Datei";
 
@@ -284,24 +303,9 @@ function triggerDownload(blob: Blob, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-async function fileExists(dir: DirHandle, name: string): Promise<boolean> {
-  try {
-    await dir.getFileHandle(name);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** Gibt `null` zurück, wenn die Datei übersprungen werden soll. */
-export async function openOutput(
-  target: Target,
-  baseName: string,
-  ext: string,
-  settings: Settings,
-  sourceHandle?: FileHandle
-): Promise<OutputHandle | null> {
-  const base = sanitize(baseName);
+export async function open(target: Target, source: SourceFile, ext: string, settings: Settings): Promise<OutputSink | null> {
+  const base = sanitize(baseName(source.name));
 
   if (target.kind === "download") {
     const name = `${base}.${ext}`;
@@ -317,31 +321,30 @@ export async function openOutput(
     };
   }
 
-  let dir = target.dir;
+  const root = resolveFolder(target.folder);
+  if (!root) throw new TargetAccessError("Der Zielordner ist nicht mehr verfügbar. Wähle bitte einen neuen Ordner.");
+
+  let dir = root;
   for (const part of target.sub) dir = await dir.getDirectoryHandle(sanitize(part), { create: true });
 
-  let name = `${base}.${ext}`;
-  const exists = await fileExists(dir, name);
-  if (exists) {
-    let number = settings.collision === "number";
-    if (settings.collision === "skip") return null;
-    if (settings.collision === "overwrite" && sourceHandle) {
-      try {
-        if (await (await dir.getFileHandle(name)).isSameEntry(sourceHandle)) number = true;
-      } catch {
-        /* ignorieren */
-      }
-    }
-    if (number) {
-      let n = 2;
-      while (await fileExists(dir, `${base} ${n}.${ext}`)) n++;
-      name = `${base} ${n}.${ext}`;
+  /* Ein Blick in den Ordner genügt – danach ist die Namensfrage synchron entscheidbar. */
+  const entries = new Set<string>();
+  for await (const [name] of (dir as any).entries() as AsyncIterable<[string, unknown]>) entries.add(name);
+
+  let sameAsSource = false;
+  if (source.handle && entries.has(`${base}.${ext}`)) {
+    try {
+      sameAsSource = await (await dir.getFileHandle(`${base}.${ext}`)).isSameEntry(source.handle);
+    } catch {
+      /* ignorieren */
     }
   }
+  const name = chooseName(base, ext, (n) => entries.has(n), settings.collision, sameAsSource);
+  if (!name) return null;
 
   const fh = await dir.getFileHandle(name, { create: true });
   const writable = await fh.createWritable();
-  const place = [target.dir.name, ...target.sub].join(" / ");
+  const place = [root.name, ...target.sub].join(" / ");
   const finalDir = dir;
   return {
     writable,
@@ -363,3 +366,18 @@ export async function openOutput(
     },
   };
 }
+
+/** Die Web-Implementierung der Naht: File System Access hinter `PlatformFS`. */
+export const webFS: PlatformFS = {
+  supported: fsaSupported,
+  pickFiles,
+  pickFolder,
+  collectFromDrop,
+  planTargets,
+  open,
+  async chooseCustomDestination() {
+    const dir = await chooseCustomDestination();
+    return dir?.name ?? null;
+  },
+  forgetFolders,
+};

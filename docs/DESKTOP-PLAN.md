@@ -26,24 +26,36 @@ Shell-String. Dateinamen mit Leerzeichen oder `&` sind sonst ein Sicherheitsloch
 Fehler zugleich. Der Vorschau-String in `lib/ffmpeg.ts` wird daraus abgeleitet
 (join mit `shellQuote`), nicht umgekehrt.
 
-Neu in `src/lib/types.ts`: zwei schmale Schnittstellen, damit der Renderer nie weiß,
-wo er läuft.
+Gebaut am 2026-10-14 in `src/lib/platform.ts`: zwei schmale Schnittstellen, damit der
+Renderer nie weiß, wo er läuft. Die Web-Seite liefert `webFS` (`lib/fsa.ts`) und
+`webEngine` (`lib/engine.ts`); `useApp.ts` kennt nur noch diese beiden Namen.
 
 ```ts
 interface MediaEngine {
-  probe(src: SourceRef): Promise<MediaInfo>;
-  convert(job: Job, target: TargetRef, onProgress: (f: number) => void, signal: AbortSignal): Promise<ConvertResult>;
+  init(): Promise<void>;
+  probe(src: SourceFile): Promise<ProbeResult>;
+  convert(req: ConvertRequest, onProgress: (f: number) => void): Promise<ConvertResult>;
+  isCanceled(err: unknown): boolean;
 }
 interface PlatformFS {
-  pickSources(): Promise<SourceRef[]>;
-  planTarget(src: SourceRef, settings: Settings): Promise<TargetRef>;
-  open(target: TargetRef): Promise<Writable>;
+  pickFiles(): Promise<File[]>;
+  pickFolder(): Promise<string | null>;
+  collectFromDrop(dt: DataTransfer): Promise<SourceFile[]>;
+  planTargets(sources: SourceFile[], settings: Settings): Promise<Target[]>;
+  open(target: Target, source: SourceFile, ext: string, settings: Settings): Promise<OutputSink | null>;
+  chooseCustomDestination(): Promise<boolean>;
+  forgetFolders(): void;
 }
 ```
 
-`Target` enthält heute einen `FileSystemDirectoryHandle` (Befund 16) — der ist nicht
-serialisierbar und gehört raus. Ersetzt durch `{ dir: string; name: string }`, das beide
-Welten verstehen (Web: Handle-Map im Renderer; Desktop: Pfad).
+`Target` ist jetzt reines JSON — `{ kind: "download" }` oder
+`{ kind: "folder", folder: { kind, id }, sub: string[] }` — und geht damit unverändert über
+Electron-IPC (Befund 16 erledigt). Lebende Handles bleiben im Renderer: `fsa.ts` führt ein
+Register (`internFolder` / `resolveFolder`), der Desktop liefert unter derselben `id` einen
+Pfad. Die Namensregel (`skip` / `number` / `overwrite`, Quelle nie überschreiben) steht als
+reine Funktion `chooseName` in `platform.ts` und ist getestet — beide Welten rufen sie auf,
+nur `exists` kommt woanders her. `OutputSink` versteckt, wohin die Bytes fließen: im Web ein
+`FileSystemWritableFileStream`, auf dem Desktop ein Schreibstrom auf eine Datei.
 
 ---
 
@@ -117,21 +129,27 @@ Erfolg mit ehrlicher Meldung, genau wie im Web. Kein stummes „fehlgeschlagen".
 
 ## 7 · Reihenfolge der Umsetzung
 
-1. `Target` serialisierbar machen, `MediaEngine`/`PlatformFS` als Typen einführen, Web auf
-   die Schnittstellen umstellen (Verhalten identisch, Tests grün).
+1. ~~`Target` serialisierbar machen, `MediaEngine`/`PlatformFS` als Typen einführen, Web auf
+   die Schnittstellen umstellen~~ — **erledigt am 2026-10-14**: `lib/platform.ts`,
+   `webFS`/`webEngine`, Verhalten identisch, 64/64 Prüfungen grün.
 2. `desktop/`-Gerüst: Fenster, Titelleiste, Taskleisten-Fortschritt, IPC-Vertrag.
 3. `ffmpeg-args.ts` + `engine-ffmpeg.ts` mit Fortschritt und Reparatur; `-encoders` als
    Hardware-Wahrheit.
 4. Installer + NSIS-FFmpeg-Abschnitt + Workflow; erster signierter oder unsignierter Build.
 5. Gegenprüfen: dieselbe Datei, Web und Desktop, identischer Job — dieselbe Größe ± Codec.
 
-## 8 · Offene Entscheidungen
+## 8 · Entscheidungen (geklärt am 2026-10-14)
 
-- **FFmpeg-Build:** LGPL (kein `libx264`, also kein H.264-Ziel aus x264 — dafür `libsvtav1`,
-  `libvpx`, native Encoder) oder GPL (volle Encoderliste). Da die App FFmpeg nur als
-  getrennten Prozess ruft, bleibt sie selbst Lizenz-neutral; aber der *geladene* Build
-  bestimmt, welche Presets auf Windows funktionieren. Ein LGPL-Build macht das
-  H.264-Preset zur Lüge.
-- **Signatur:** eigenes Zertifikat / Azure Trusted Signing, oder erst unsigniert starten.
-- **Windows 10:** transparent + eigene Ecken funktionieren dort; der Schlagschatten muss
-  jedoch die App selbst malen (kein DWM). Akzeptiert, oder auf 11 beschränken?
+- **FFmpeg-Build: GPL.** Vollständige Encoderliste, damit jedes Preset der Web-Version auch
+  auf Windows wirklich funktioniert — ein LGPL-Build ohne `libx264` hätte das H.264-Preset
+  zur Lüge gemacht. Quelle: BtbN `ffmpeg-master-latest-win64-gpl.zip`, mit gepinntem
+  SHA-256 im Manifest. Die App selbst bleibt Lizenz-neutral (FFmpeg läuft als getrennter
+  Prozess); die GPL-Pflichten treffen den geladenen Build, und der wird mit Quelle,
+  Version und Lizenztext im Installer und im „Über"-Dialog ausgewiesen.
+- **Signatur: erst unsigniert.** Die SmartScreen-Warnung ist der bewusste Preis für einen
+  frühen Test-Build; Zertifikat oder Azure Trusted Signing folgt, sobald die App
+  veröffentlicht wird. Nie gelöst wird sie durch Weglassen der Meldung: Der Installer sagt
+  beim ersten Start, was Windows anzeigt und warum.
+- **Windows 10 und 11.** Die App malt Kanten, Rundung und Schatten selbst, weil der DWM auf
+  Windows 10 beides nicht hergibt. Kosten: ein eigenes Rahmen-Layout (siehe §2), Gewinn: ein
+  Fenster, das auf beiden Versionen gleich aussieht.
