@@ -172,12 +172,20 @@ export interface Item {
 }
 
 export interface HardwareInfo {
-  /** Anzeigename der Grafikkarte */
+  /** Anzeigename der Grafikkarte – leer, wenn die Quelle ihn nicht kennt */
   gpu: string;
   vendor: "nvidia" | "amd" | "intel" | "apple" | "other" | "none";
   /** Name der Encoder-Technik, z. B. NVENC */
   encoder: string;
   available: boolean;
+  /**
+   * Woher die Erkenntnis stammt. WebGL liefert nur einen Namen, und der Browser
+   * darf ihn verdecken. Was zählt, ist die Liste der Encoder: im Web WebCodecs,
+   * auf dem Desktop `ffmpeg -encoders`.
+   */
+  source: "webgl" | "encoders" | "ffmpeg";
+  /** Der Browser verdeckt die Grafikkarte. Die App weiß es nicht, statt zu raten. */
+  hidden?: boolean;
 }
 
 export interface Capabilities {

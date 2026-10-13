@@ -8,7 +8,7 @@ import type { MediaEngine, PlatformFS, Target } from "../lib/platform";
 /** Die Naht, an der die Desktop-App später eine andere Implementierung einsetzt. */
 const fs: PlatformFS = webFS;
 const engine: MediaEngine = webEngine;
-import { detectHardware } from "../lib/hardware";
+import { detectHardware, withEncoderTruth } from "../lib/hardware";
 import { NO_ADJUSTMENTS } from "../lib/job";
 import { moveTo } from "../lib/order";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
@@ -57,7 +57,16 @@ export function useApp() {
    */
   const [selected, setSelected] = useState<string[]>([]);
   const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
-  const hardware = useMemo(() => detectHardware(), []);
+  /*
+   * WebGL nennt nur einen Namen – und der Browser darf ihn verdecken. Ob wirklich
+   * beschleunigt wird, sagen die Fähigkeiten der Engine. Erst beides zusammen ist
+   * eine Auskunft, auf die sich die App verlassen kann (Befund P2-10).
+   */
+  const hardwareSeen = useMemo(() => detectHardware(), []);
+  const hardware = useMemo(
+    () => (caps.ready ? withEncoderTruth(hardwareSeen, caps.video.length) : hardwareSeen),
+    [hardwareSeen, caps]
+  );
 
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;

@@ -13,6 +13,7 @@ import { buildFfmpegCommand } from "../src/lib/ffmpeg";
 import { clampCrop, estimateOutputBytes, fastStartMode, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
 import { moveTo, slotShift } from "../src/lib/order";
 import { defaultPresets } from "../src/lib/presets";
+import { hardwareFromEncoders, withEncoderTruth } from "../src/lib/hardware";
 import { chooseName } from "../src/lib/platform";
 import type { HardwareInfo, MediaInfo, Preset } from "../src/lib/types";
 
@@ -120,7 +121,7 @@ eq("ohne Dauer gibt es keine Fantasiezahl", estimateOutputBytes(preset, { ...inf
 /* ── FFmpeg-Befehl der Desktop-App ── */
 
 group("FFmpeg-Befehl");
-const hw: HardwareInfo = { gpu: "keine", vendor: "none", encoder: "", available: false };
+const hw: HardwareInfo = { gpu: "keine", vendor: "none", encoder: "", available: false, source: "ffmpeg" };
 const cmd = buildFfmpegCommand(preset, hw, false, "Quelle.mkv", {
   rotate: 90,
   crop: { left: 10, top: 20, width: 800, height: 600 },
@@ -195,6 +196,28 @@ eq("„Nummerieren“ zählt hoch, bis ein Name frei ist", chooseName("Urlaub", 
 eq("„Ersetzen“ schreibt in dieselbe Datei", chooseName("Urlaub", "mp4", () => true, "overwrite", false), "Urlaub.mp4");
 eq("„Ersetzen“ vernichtet nie die Quelle", chooseName("Urlaub", "mp4", (n) => n === "Urlaub.mp4", "overwrite", true), "Urlaub 2.mp4");
 eq("die Suche endet auch, wenn alles belegt scheint", chooseName("Urlaub", "mp4", () => true, "number", false), "Urlaub 1000.mp4");
+
+/* ── Hardware: Name ist Hinweis, Encoder-Liste ist Wahrheit ── */
+
+group("Hardware-Wahrheit");
+eq(
+  "FFmpeg nennt NVENC",
+  hardwareFromEncoders(["libx264", "h264_nvenc", "hevc_nvenc"]),
+  { gpu: "", vendor: "nvidia", encoder: "NVENC", available: true, source: "ffmpeg" }
+);
+eq("FFmpeg nennt Quick Sync", hardwareFromEncoders(["h264_qsv"]).encoder, "Quick Sync");
+eq("FFmpeg ohne Hardware-Encoder bleibt bei Software", hardwareFromEncoders(["libx264", "libsvtav1"]).available, false);
+eq(
+  "Web: ohne encodierbares Format gibt es nichts zu beschleunigen",
+  withEncoderTruth({ gpu: "RTX 4070", vendor: "nvidia", encoder: "NVENC", available: true, source: "webgl" }, 0).available,
+  false
+);
+eq(
+  "Web: mit encodierbarem Format bleibt die Erkenntnis",
+  withEncoderTruth({ gpu: "RTX 4070", vendor: "nvidia", encoder: "NVENC", available: true, source: "webgl" }, 3).available,
+  true
+);
+eq("Die FFmpeg-Wahrheit wird nicht wieder infrage gestellt", withEncoderTruth(hardwareFromEncoders(["h264_nvenc"]), 0).available, true);
 
 /* ── Ergebnis ── */
 

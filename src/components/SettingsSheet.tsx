@@ -42,7 +42,16 @@ export function SettingsSheet({
         </Group>
 
         <Group title="Leistung">
-          <Row label="Grafikkarte verwenden" sub={hardware.available ? `${hardware.gpu} · ${hardware.encoder}` : "Keine Grafikkarte gefunden"}>
+          <Row
+            label="Grafikkarte verwenden"
+            sub={
+              hardware.available
+                ? [hardware.gpu, hardware.encoder].filter(Boolean).join(" · ")
+                : hardware.hidden
+                  ? "Der Browser verdeckt die Grafikkarte – konvertiert wird trotzdem"
+                  : "Keine Grafikkarte gefunden"
+            }
+          >
             <Switch
               disabled={!hardware.available}
               checked={settings.hardware === "auto" && hardware.available}
