@@ -46,6 +46,7 @@ import type {
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputSink } from "./platform";
+import { detectHardware, withEncoderTruth } from "./hardware";
 import { estimateOutputBytes, fastStartMode, resolveJob } from "./job";
 import type { Job } from "./job";
 import type { MediaEngine } from "./platform";
@@ -346,7 +347,17 @@ export function isCanceled(e: unknown): boolean {
  * Die Desktop-App stellt dieselbe Schnittstelle gegen FFmpeg – die Oberfläche
  * merkt den Unterschied nicht.
  */
-export const webEngine: MediaEngine = { init: initEngine, probe, convert, isCanceled };
+export const webEngine: MediaEngine = {
+  init: initEngine,
+  /*
+   * Eine gefundene Grafikkarte heißt noch nicht, dass beschleunigt wird:
+   * encodieren muss der Browser. Erst beides zusammen ist eine Auskunft.
+   */
+  hardware: async () => withEncoderTruth(detectHardware(), (await initEngine()).video.length),
+  probe,
+  convert,
+  isCanceled,
+};
 
 type Hw = "prefer-hardware" | "no-preference" | "prefer-software";
 

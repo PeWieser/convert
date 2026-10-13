@@ -8,13 +8,13 @@ import type { MediaEngine, PlatformFS, Target } from "../lib/platform";
 /** Die Naht, an der die Desktop-App später eine andere Implementierung einsetzt. */
 const fs: PlatformFS = webFS;
 const engine: MediaEngine = webEngine;
-import { detectHardware, withEncoderTruth } from "../lib/hardware";
+import { detectHardware } from "../lib/hardware";
 import { NO_ADJUSTMENTS } from "../lib/job";
 import { moveTo } from "../lib/order";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
-import type { Adjustments, Capabilities, Item, Preset, Settings, SourceFile } from "../lib/types";
+import type { Adjustments, Capabilities, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
 
 /** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
 const willRearm = (i: Item) =>
@@ -58,15 +58,15 @@ export function useApp() {
   const [selected, setSelected] = useState<string[]>([]);
   const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
   /*
-   * WebGL nennt nur einen Namen – und der Browser darf ihn verdecken. Ob wirklich
-   * beschleunigt wird, sagen die Fähigkeiten der Engine. Erst beides zusammen ist
-   * eine Auskunft, auf die sich die App verlassen kann (Befund P2-10).
+   * Der erste Blick kommt aus WebGL, damit das Fenster nicht leer steht. Die
+   * Auskunft, auf die sich die App verlässt, liefert die Engine: im Web gefiltert
+   * durch das, was der Browser encodieren kann, auf dem Desktop aus
+   * `ffmpeg -encoders` (Befund P2-10).
    */
-  const hardwareSeen = useMemo(() => detectHardware(), []);
-  const hardware = useMemo(
-    () => (caps.ready ? withEncoderTruth(hardwareSeen, caps.video.length) : hardwareSeen),
-    [hardwareSeen, caps]
-  );
+  const [hardware, setHardware] = useState<HardwareInfo>(() => detectHardware());
+  useEffect(() => {
+    engine.hardware?.().then(setHardware).catch(() => undefined);
+  }, []);
 
   const itemsRef = useRef<Item[]>([]);
   itemsRef.current = items;

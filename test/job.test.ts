@@ -9,6 +9,8 @@
  *
  *   npm test
  */
+import { candidates, pickExisting } from "../desktop/ffmpeg-locate";
+import { classifyFailure, parseProgress } from "../desktop/ffmpeg-read";
 import { buildFfmpegArgs, buildFfmpegCommand, shellQuote } from "../src/lib/ffmpeg";
 import { clampCrop, estimateOutputBytes, fastStartMode, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
 import { moveTo, slotShift } from "../src/lib/order";
@@ -239,6 +241,45 @@ eq(
   true
 );
 eq("Die FFmpeg-Wahrheit wird nicht wieder infrage gestellt", withEncoderTruth(hardwareFromEncoders(["h264_nvenc"]), 0).available, true);
+
+/* ── Desktop: FFmpeg-Ausgabe lesen ── */
+
+group("FFmpeg-Ausgabe");
+const line = "frame= 1234 fps= 92.0 q=28.0 size=   20480kB time=00:00:41.23 bitrate=4069.1kbits/s speed=3.42x";
+eq("Zeit wird zu Sekunden", parseProgress(line, 120)!.seconds, 41.23);
+eq("Anteil an der bekannten Dauer", parseProgress(line, 120)!.fraction, 41.23 / 120);
+eq("Tempo", parseProgress(line, 120)!.speed, 3.42);
+eq("geschriebene Bytes", parseProgress("size=   20480kB time=00:00:01.00", 10)!.bytes, 20480 * 1024);
+eq("ohne Dauer gibt es keinen Anteil", parseProgress(line, 0)!.fraction, 0);
+eq("über die Dauer hinaus wird geklemmt", parseProgress(line, 10)!.fraction, 1);
+eq("time=N/A ist kein Fortschritt", parseProgress("frame=1 fps=1 time=N/A bitrate=N/A", 10), null);
+eq("Platzmangel ist endgültig", classifyFailure("av_interleaved_write_frame(): No space left on device").final, true);
+eq("eine beschädigte Datei wird noch einmal versucht", classifyFailure("[mov] moov atom not found").retry, "discard");
+eq("ein fehlender Encoder ist keine Frage des Versuchs", classifyFailure("Unknown encoder 'libx264'").final, true);
+eq("ein abgebrochener Lauf ist kein Fehler", classifyFailure("", true).final, false);
+eq("unbekannter Text zeigt die letzte Zeile", classifyFailure("bla\nIrgendwas Seltsames").message, "FFmpeg: Irgendwas Seltsames");
+
+/* ── Desktop: FFmpeg suchen statt bündeln ── */
+
+group("FFmpeg suchen");
+const winDirs = {
+  install: "C:\\Programme\\Wandler",
+  userData: "C:\\Users\\ich\\AppData\\Roaming\\Wandler",
+  home: "C:\\Users\\ich",
+};
+const win = candidates("win32", winDirs);
+eq("der eigene Build kommt zuerst", win[0], { path: "C:\\Programme\\Wandler\\ffmpeg\\bin\\ffmpeg.exe", source: "app" });
+eq("winget wird gefragt", win.some((c) => c.path.includes("WinGet")), true);
+eq("Chocolatey wird gefragt", win.some((c) => c.path.includes("chocolatey")), true);
+eq("der erste vorhandene Kandidat gewinnt", pickExisting(win, (p) => p.includes("chocolatey"))!.source, "package");
+eq("ohne Fund gibt es nichts", pickExisting(win, () => false), null);
+eq(
+  "Linux schaut in die Paketquelle",
+  candidates("linux", { install: "/opt/wandler", userData: "/home/ich/.wandler", home: "/home/ich" }).some(
+    (c) => c.path === "/usr/bin/ffmpeg"
+  ),
+  true
+);
 
 /* ── Ergebnis ── */
 

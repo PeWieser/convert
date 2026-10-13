@@ -85,14 +85,18 @@ export function buildFfmpegArgs(
   hwEnabled: boolean,
   input = "Quelle.mkv",
   adj: Adjustments = NO_ADJUSTMENTS,
-  /** Wohin der erste Durchgang seine verworfenen Bytes schreibt: NUL oder /dev/null. */
-  nullDevice = "NUL"
+  opts: {
+    /** Wohin der erste Durchgang seine verworfenen Bytes schreibt: NUL oder /dev/null. */
+    nullDevice?: string;
+    /** Der echte Zielpfad. Fehlt er, steht der Platzhalter der Vorschau da. */
+    output?: string;
+  } = {}
 ): string[][] {
   const v = p.video;
   const a = p.audio;
   const c = CONTAINERS[p.container];
   const useHw = hwEnabled && hw.available;
-  const out = `Ziel.${c.ext}`;
+  const out = opts.output ?? `Ziel.${c.ext}`;
 
   const head: string[] = ["ffmpeg", "-hide_banner", "-y"];
   if (useHw) head.push("-hwaccel", "auto");
@@ -233,7 +237,7 @@ export function buildFfmpegArgs(
   if (secondPass) {
     /* Erster Durchgang: Statistik sammeln und das Bild verwerfen. Zweiter: schreiben. */
     return [
-      [...head, ...video, "-pass", "1", "-an", "-f", "null", nullDevice],
+      [...head, ...video, "-pass", "1", "-an", "-f", "null", opts.nullDevice ?? "NUL"],
       [...head, ...video, ...secondPass, ...audio, ...rest, out],
     ];
   }

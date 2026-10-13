@@ -12,7 +12,7 @@
  * sie in `fsa.ts` und `engine.ts`.
  */
 import type { ConvertRequest, ConvertResult, ProbeResult } from "./engine";
-import type { Capabilities, Settings, SourceFile } from "./types";
+import type { Capabilities, HardwareInfo, Settings, SourceFile } from "./types";
 
 /* ───────────── Ort statt Gegenstand ───────────── */
 
@@ -38,6 +38,11 @@ export type Target = { kind: "download" } | { kind: "folder"; folder: FolderRef;
  */
 export interface OutputSink {
   writable?: WritableStream<Uint8Array>;
+  /**
+   * Wohin die Datei entsteht, wenn die Engine selbst schreibt. Auf dem Desktop
+   * bekommt FFmpeg einen Pfad – keinen Strom, den der Renderer füllen müsste.
+   */
+  path?: string;
   /** Menschliche Ortsangabe für die Dateiliste, z. B. „Videos / Konvertiert". */
   place: string;
   /** Gibt die geschriebene Größe in Bytes zurück. */
@@ -68,6 +73,12 @@ export interface PlatformFS {
 
 export interface MediaEngine {
   init(): Promise<Capabilities>;
+  /**
+   * Was dieser Rechner wirklich kann. Im Web ein Hinweis aus WebGL, gefiltert
+   * durch das, was der Browser encodieren kann; auf dem Desktop die Liste aus
+   * `ffmpeg -encoders`. Fehlt die Antwort, bleibt der Hinweis aus dem Start.
+   */
+  hardware?(): Promise<HardwareInfo>;
   probe(source: SourceFile): Promise<ProbeResult>;
   convert(req: ConvertRequest): Promise<ConvertResult>;
   isCanceled(e: unknown): boolean;
