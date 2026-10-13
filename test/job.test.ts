@@ -9,7 +9,7 @@
  *
  *   npm test
  */
-import { buildFfmpegCommand } from "../src/lib/ffmpeg";
+import { buildFfmpegArgs, buildFfmpegCommand, shellQuote } from "../src/lib/ffmpeg";
 import { clampCrop, estimateOutputBytes, fastStartMode, isAdjusted, NO_ADJUSTMENTS, resolveJob } from "../src/lib/job";
 import { moveTo, slotShift } from "../src/lib/order";
 import { defaultPresets } from "../src/lib/presets";
@@ -139,16 +139,37 @@ const plain = buildFfmpegCommand(preset, hw, false);
 eq("ohne Anpassungen steht nichts Überflüssiges im Befehl", [plain.includes("crop="), plain.includes("transpose"), plain.includes("-ss")], [false, false, false]);
 eq("180° wird zu zwei Spiegelungen", buildFfmpegCommand(preset, hw, false, "q.mkv", { rotate: 180 }).includes("hflip,vflip"), true);
 eq("270° dreht andersherum", buildFfmpegCommand(preset, hw, false, "q.mkv", { rotate: 270 }).includes("transpose=2"), true);
+/*
+ * Geprüft wird das Argument-Array – die Wahrheit. Der Befehls-String in der
+ * Vorschau ist nur seine Darstellung, und dort steht `0:v:0?` in
+ * Anführungszeichen, weil `?` der Shell sonst etwas bedeutet.
+ */
+const args = buildFfmpegArgs(preset, hw, false)[0];
 /* P2-11: `0:v?` mappte alle Bildspuren und brach mit globaler Filterkette. */
-eq("genau eine Bildspur", buildFfmpegCommand(preset, hw, false).includes("-map 0:v:0?"), true);
-eq("kein Sammel-Mapping mehr", buildFfmpegCommand(preset, hw, false).includes("-map 0:v? "), false);
-eq("genau eine Tonspur", buildFfmpegCommand(preset, hw, false).includes("-map 0:a:0?"), true);
+eq("genau eine Bildspur", args.filter((a) => a === "0:v:0?").length, 1);
+eq("kein Sammel-Mapping mehr", args.includes("0:v?"), false);
+eq("genau eine Tonspur", args.filter((a) => a === "0:a:0?").length, 1);
 const audioPreset = { ...preset, container: "mp3" as const, video: { ...preset.video, codec: "none" as const } };
-eq("reiner Ton mappt kein Bild", buildFfmpegCommand(audioPreset, hw, false).includes("0:v"), false);
-const keepSubs = buildFfmpegCommand({ ...preset, subtitles: "keep" }, hw, false);
-const burnSubs = buildFfmpegCommand({ ...preset, subtitles: "burn" }, hw, false);
-eq("Untertitel behalten: Spuren mappen", keepSubs.includes("-map 0:s?"), true);
-eq("Untertitel einbrennen: nicht mappen", burnSubs.includes("-map 0:s?"), false);
+eq("reiner Ton mappt kein Bild", buildFfmpegArgs(audioPreset, hw, false)[0].some((a) => a.startsWith("0:v")), false);
+const keepSubs = buildFfmpegArgs({ ...preset, subtitles: "keep" }, hw, false)[0];
+const burnSubs = buildFfmpegArgs({ ...preset, subtitles: "burn" }, hw, false)[0];
+eq("Untertitel behalten: Spuren mappen", keepSubs.includes("0:s?"), true);
+eq("Untertitel einbrennen: nicht mappen", burnSubs.includes("0:s?"), false);
+
+/* ── Argumente, nicht eine Zeile Text ── */
+
+group("FFmpeg-Argumente");
+eq("der Aufruf beginnt mit ffmpeg", args[0], "ffmpeg");
+ok("kein Argument kommt mit Anführungszeichen an", args.every((a) => !a.includes('"')));
+ok("der Quellname steht als ein Argument da", args.includes("Quelle.mkv") || args[args.indexOf("-i") + 1] === "Quelle.mkv");
+eq(
+  "zwei Durchgänge, wenn das Preset zwei verlangt",
+  buildFfmpegArgs({ ...preset, video: { ...preset.video, rateControl: "cbr", twoPass: true } }, hw, false).length,
+  2
+);
+eq("ein Durchgang, wenn einer genügt", buildFfmpegArgs(preset, hw, false).length, 1);
+eq("die Shell bekommt Anführungszeichen nur, wo sie sonst eingreift", shellQuote("Mein Film & mehr.mp4"), '"Mein Film & mehr.mp4"');
+eq("Umlaute und Punkte brauchen keine Anführungszeichen", shellQuote("Übung-1.mkv"), "Übung-1.mkv");
 
 /* ── Änderung erkennen ── */
 
