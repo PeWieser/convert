@@ -40,10 +40,23 @@ Zielgröße und Kopier-Entscheidung einmal aus, beide Engines bedienen sich dara
   `Fertig` speichert, `Abbrechen` nicht — beide unten rechts. Duplizieren und Löschen
   sitzen im Menü der Preset-Karte (drei Punkte).
 - **Datei** = was mit *dieser einen* Datei ist. **Doppelklick auf eine Zeile** spielt sie
-  ab und öffnet den Inspektor mit drei Werkzeugen: **Drehen · Zuschneiden · Schneiden**.
-  Auch hier gilt das Haken-Muster — jeder geänderte Wert lässt sich einzeln zurückstellen,
-  und in der Dateiliste steht danach kurz, was mit der Datei los ist (`90° gedreht · gekürzt`).
-  `Auf alle anwenden` überträgt den Entwurf auf jede Datei mit Bild.
+  ab und öffnet den Inspektor mit vier Werkzeugen: **Drehen · Zuschneiden · Schneiden ·
+  Metadaten**. Auch hier gilt das Haken-Muster — jeder geänderte Wert lässt sich einzeln
+  zurückstellen, und in der Dateiliste steht danach kurz, was mit der Datei los ist
+  (`90° gedreht · gekürzt`). `Auf alle anwenden` überträgt den Entwurf auf jede Datei mit
+  Bild bzw. die Serienangaben auf alle Dateien.
+- **Metadaten** = was *in* der Datei steht: Titel, Serie, Staffel, Folge, Folgentitel,
+  Jahr, Genre, Interpret/Studio, Beschreibung und Titelbild. Das Formular ist mit dem
+  gefüllt, was die Datei schon trägt; Vorschläge aus dem Dateinamen (`Meine.Serie.S01E02.mkv`)
+  gibt es auf Wunsch per Knopf. **Bei TMDB suchen** findet Film oder Serie in der
+  eingestellten Sprache, bei Serien samt Folgenauswahl, und füllt die Felder. Der
+  TMDB-Schlüssel steht in den Einstellungen unter *Metadaten* und bleibt auf dem Rechner.
+  Was ein Zielformat wirklich schreiben kann, steht unter dem Formular — MPEG-TS führt
+  keine Metadaten, und im Browser bleiben Seriennummern im MP4 dem Desktop vorbehalten.
+- **Der Weg jeder Datei steht vorher da.** In der Zeile und im Kopf des Inspektors steht,
+  was gleich geschieht: *Wird verlustfrei umgepackt* (H.264/AAC aus dem TS nach MP4 —
+  Bild und Ton bleiben Bit für Bit), *Bild unverändert, Ton neu kodiert* oder
+  *Wird neu kodiert* (MPEG-2 aus dem TS). Die Begründung steht als Tooltip daneben.
 - **Während der Konvertierung ist alles gesperrt** — mit sichtbarem Grund.
   Nichts lässt sich ändern, was ohnehin nicht wirkt. Ein geöffneter Inspektor schließt sich.
 - `⌘/Strg + O` Dateien · `⇧⌘/Strg + O` Ordner · `⌘/Strg + ↩` konvertieren ·
@@ -101,9 +114,11 @@ npm run test:ffmpeg         # benötigt ffmpeg und ffprobe im PATH
 ```
 
 `FFMPEG_PATH` / `FFPROBE_PATH` erlauben alternative Test-Binaries. Große Testmedien
-werden temporär erzeugt, nicht eingecheckt. `checks.yml` führt die Prüfungen aus;
-`desktop.yml` baut den Windows-Installer als Workflow-Artefakt. Diese Workflows wurden
-hier angelegt/korrigiert, nicht bereits auf GitHub erfolgreich ausgeführt.
+werden temporär erzeugt, nicht eingecheckt. `checks.yml` führt Typprüfung, Logiktests,
+Oberflächentests und die FFmpeg-Läufe aus, `desktop.yml` baut den Windows-Installer als
+Workflow-Artefakt; beide laufen auf GitHub grün (Stand: Pull-Anfrage #2). Fällt eine der
+beiden Integrationsprüfungen, schreibt der Workflow ihre Ausgabe als Kommentar in die
+Pull-Anfrage — sonst läge sie nur im Protokoll des Läufers.
 
 ### Aufbau
 
@@ -171,8 +186,15 @@ Der frühere Plan in `docs/AUDIT-UND-PLAN.md` bleibt als historische Einordnung 
       (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
 - [x] **Phase 4b** — Preset-Verwaltung: Umsortieren, Auswahl-Konvertieren, dauerhaft erreichbarer Grid-Picker.
       Touch/Autoscroll und vollständige Grid-Tastaturbedienung bleiben Nacharbeit.
-- [ ] **Phase 5** — Windows-App: Electron + FFmpeg implementiert, Windows-/Installer-Abnahme offen. Ursprünglicher Bauplan in
-      [`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md), Installer-CI in
+- [x] **Phase 5** — Metadaten: Reiter im Inspektor, TMDB-Suche, ein Feldmodell für Formular,
+      FFmpeg und Browser-Tags (`lib/metadata.ts`, `lib/tmdb.ts`). Titelbild hängt die
+      Desktop-App als `attached_pic` an (MKV: Anhang) und liest danach zurück, ob der
+      Titel wirklich in der Datei steht.
+- [ ] **Phase 5 — Windows-Abnahme** steht weiter offen: Electron + FFmpeg sind
+      implementiert und der Installer baut auf GitHub, geprüft wurde er aber noch nicht auf
+      einem echten Windows-Rechner (FFmpeg vorhanden/unvollständig/fehlend, ohne Netz,
+      Pfade mit Leerzeichen und Umlauten, ohne Administratorrechte, Deinstallation).
+      Bauplan in [`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md), Installer-CI in
       [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)
 
 ## Lizenzen
