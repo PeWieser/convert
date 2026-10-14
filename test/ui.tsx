@@ -21,7 +21,17 @@ function Harness() {
     <PresetBar presets={presets} selectedId={selectedId} disabled={false} canDelete onSelect={select} onReorder={(id, to) => setPresets((prev) => moveTo(prev, prev.findIndex((p) => p.id === id), to))} onEdit={() => {}} onDuplicate={() => {}} onDelete={() => {}} onAdd={() => {}} onOpenGrid={() => {}} />
     <button onClick={() => setLocked(!locked)}>Sperre umschalten</button>
     <button onClick={() => setInspecting(true)}>Inspektor öffnen</button>
-    <ul><FileRow item={{ id: "f1", source: { id: "f1", file: new File(["test"], "Film.mp4"), name: "Film.mp4", relDirs: [] }, status: "done", health: { state: "ok" }, progress: 1, outSize: 1000, adjustments: { rotate: 0 } }} preset={presets[0]} onRemove={() => {}} onRetry={() => {}} locked={locked} /></ul>
+    <ul>
+      <FileRow
+        item={{ id: "f1", source: { id: "f1", file: new File(["test"], "Film.mp4"), name: "Film.mp4", relDirs: [] }, status: "done", health: { state: "ok" }, progress: 1, outSize: 1000, outId: "out-1", adjustments: { rotate: 0 } }}
+        preset={presets[0]}
+        onRemove={() => {}}
+        onRetry={() => {}}
+        /* Nur zum Prüfen: Der Desktop reicht hier seinen Brückenaufruf durch. */
+        onReveal={(item) => { (window as unknown as { __revealed?: string }).__revealed = item.outId; }}
+        locked={locked}
+      />
+    </ul>
     {/* Der Metadaten-Reiter mit einer Datei, die schon einen Titel trägt. */}
     {inspecting && <FileInspector
       item={{

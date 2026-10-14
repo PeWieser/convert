@@ -149,3 +149,12 @@ test("metadata tab edits the file's own values and says what is written", async 
   /* Und was geschrieben wird, steht dabei: bei WebCodecs kein Titelbild. */
   await expect(inspector.getByText(/bettet nur die Desktop-App ein/).first()).toBeVisible();
 });
+
+test("a finished file has a way to the folder it was written to", async ({ page }) => {
+  await page.goto("/test/ui.html");
+  const reveal = page.getByRole("button", { name: "Zeigen" });
+  await expect(reveal).toBeVisible();
+  await reveal.click();
+  /* Die Zeile kennt nur die Kennung – den Pfad löst die App auf. */
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __revealed?: string }).__revealed)).toBe("out-1");
+});
