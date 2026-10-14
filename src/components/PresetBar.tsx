@@ -65,6 +65,17 @@ export function PresetBar({
   /** Die Versätze, aus denen die Karten nach dem Einsortieren in ihre Lücke gleiten. */
   const [flip, setFlip] = useState<Map<string, number> | null>(null);
 
+  const timers = useRef<number[]>([]);
+  const armCleanup = useRef<(() => void) | null>(null);
+  const later = (fn: () => void, ms: number) => {
+    const timer = window.setTimeout(() => { timers.current = timers.current.filter((t) => t !== timer); fn(); }, ms);
+    timers.current.push(timer);
+  };
+  useEffect(() => () => {
+    timers.current.forEach(clearTimeout);
+    armCleanup.current?.();
+  }, []);
+
   useEffect(() => {
     if (!confirmId) return;
     const t = setTimeout(() => setConfirmId(null), 3000);
@@ -73,6 +84,10 @@ export function PresetBar({
 
   useEffect(() => {
     if (disabled) {
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+      armCleanup.current?.();
+      before.current = null;
       setMenu(null);
       setDrag(null);
       press.current = null;
@@ -96,15 +111,13 @@ export function PresetBar({
     const up = () => {
       const d = dragRef.current;
       press.current = null;
-      if (!d) {
-        setDrag(null);
-        return;
-      }
+      if (!d || d.dx === null) return;
       swallowClick.current = true;
+      later(() => { swallowClick.current = false; }, 0);
       /* dx auf null: die Karte folgt nicht mehr dem Zeiger, sondern gleitet in
          ihre Lücke. Gespeichert wird erst, wenn sie dort ist – sonst springt sie. */
       setDrag({ ...d, dx: null });
-      window.setTimeout(() => {
+      later(() => {
         if (d.to === d.from) {
           setDrag(null);
           return;
@@ -114,7 +127,7 @@ export function PresetBar({
         before.current = seen;
         onReorder(d.id, d.to);
         /* Kommt die neue Reihenfolge nicht an, löst sich der Zug trotzdem. */
-        window.setTimeout(() => {
+        later(() => {
           if (before.current === seen) {
             before.current = null;
             setDrag(null);
@@ -125,11 +138,12 @@ export function PresetBar({
 
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    const cancel = () => { press.current = null; setDrag(null); };
+    window.addEventListener("pointercancel", cancel);
     return () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      window.removeEventListener("pointercancel", cancel);
     };
   }, [drag !== null, onReorder]);
 
@@ -150,19 +164,20 @@ export function PresetBar({
     before.current = null;
 
     /* Die natürlichen Plätze messen: kurz ohne die Verschiebung des Ziehens. */
-    const held: [HTMLElement, string][] = [];
+    const held: [HTMLElement, string, string][] = [];
     for (const [, el] of cards.current) {
-      held.push([el, el.style.transform]);
-      el.style.transform = "";
+      held.push([el, el.style.transform, el.style.transition]);
+      el.style.transition = "none";
+      el.style.transform = "none";
     }
     const offsets = new Map<string, number>();
     for (const [id, el] of cards.current) {
       const was = seen.get(id);
       if (was === undefined) continue;
       const dx = was - el.getBoundingClientRect().left;
-      if (Math.abs(dx) > 0.5) offsets.set(id, dx);
+      offsets.set(id, Math.abs(dx) > 0.5 ? dx : 0);
     }
-    for (const [el, t] of held) el.style.transform = t;
+    for (const [el, t, transition] of held) { el.style.transform = t; el.style.transition = transition; }
 
     setDrag(null);
     if (!offsets.size) return;
@@ -172,7 +187,8 @@ export function PresetBar({
   }, [presets]);
 
   const beginPress = (p: Preset, index: number) => (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (disabled || e.button !== 0 || e.pointerType === "touch" || menu) return;
+    if (drag || disabled || e.button !== 0 || e.pointerType === "touch" || menu) return;
+    armCleanup.current?.();
     press.current = { id: p.id, index, x: e.clientX, y: e.clientY };
 
     const arm = (ev: PointerEvent) => {
@@ -191,17 +207,19 @@ export function PresetBar({
         pitch: known[1].left - known[0].left,
       };
       setDrag({ id: start.id, dx: ev.clientX - start.x, from: index, to: index });
-      press.current = { ...start, x: ev.clientX };
+      // Keep the original pointer origin; resetting it caused a jump on the next move.
     };
+    const cleanup = () => {
+      press.current = null;
+      window.removeEventListener("pointermove", arm);
+      window.removeEventListener("pointerup", cleanup);
+      window.removeEventListener("pointercancel", cleanup);
+      armCleanup.current = null;
+    };
+    armCleanup.current = cleanup;
     window.addEventListener("pointermove", arm);
-    window.addEventListener(
-      "pointerup",
-      () => {
-        press.current = null;
-        window.removeEventListener("pointermove", arm);
-      },
-      { once: true }
-    );
+    window.addEventListener("pointerup", cleanup, { once: true });
+    window.addEventListener("pointercancel", cleanup, { once: true });
   };
 
   const close = () => {
@@ -210,7 +228,38 @@ export function PresetBar({
   };
 
   return (
-    <div className="-mx-3 flex items-stretch gap-2 pr-3">
+    <div className="-mx-3">
+      {/*
+        Die Leiste hatte keinen Namen. Wer die App zum ersten Mal öffnet, sieht
+        Kärtchen, aber nicht, wofür sie stehen. Ein Wort genügt – und der Weg zu
+        einem neuen Preset gehört nach oben, nicht als anonymer Plus-Knopf ans
+        Ende der Reihe.
+      */}
+      <div className="mx-3 flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-label2">Ausgabe</h2>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onOpenGrid}
+            disabled={disabled}
+            title={disabled ? lockReason : "Alle Presets"}
+            aria-label="Alle Presets"
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[12.5px] text-label2 transition hover:bg-fill hover:text-label disabled:pointer-events-none disabled:opacity-40"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={2.2} />
+            Alle
+          </button>
+          <button
+            onClick={onAdd}
+            disabled={disabled}
+            title={disabled ? lockReason : "Neues Preset"}
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[12.5px] text-label2 transition hover:bg-fill hover:text-label disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
+            Neu
+          </button>
+        </div>
+      </div>
+    <div className="flex items-stretch gap-2 pr-3">
       <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-3 pb-5 pt-3" role="radiogroup" aria-label="Format">
       {presets.map((p, index) => {
         const selected = p.id === selectedId;
@@ -265,13 +314,16 @@ export function PresetBar({
             }}
             onDoubleClick={() => !disabled && onEdit(p.id)}
             onKeyDown={(e) => {
-              if (disabled) return;
+              if (disabled || e.target !== e.currentTarget) return;
               const n = presets.length;
               /* Strg/⌘ + Pfeil verschiebt, der Pfeil allein wählt aus. */
               if ((e.ctrlKey || e.metaKey) && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
                 e.preventDefault();
                 const to = Math.max(0, Math.min(n - 1, index + (e.key === "ArrowRight" ? 1 : -1)));
-                if (to !== index) onReorder(p.id, to);
+                if (to !== index) {
+                  before.current = new Map([...cards.current].map(([id, el]) => [id, el.getBoundingClientRect().left]));
+                  onReorder(p.id, to);
+                }
                 return;
               }
               if (e.key === "Enter" || e.key === " ") {
@@ -295,14 +347,14 @@ export function PresetBar({
                */
               selected
                 ? "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_84%,white)_0%,var(--accent)_46%,color-mix(in_srgb,var(--accent)_82%,black)_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2),0_5px_16px_color-mix(in_srgb,var(--accent)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent)_55%,black)]"
-                : !isDragged && "hover:-translate-y-[1px]",
+                : !drag && "hover:-translate-y-[1px]",
               /*
                * Die Karte gibt beim Drücken nach – aber nur, wenn sie selbst
                * gedrückt wird. Wer die drei Punkte anklickt, will das Menü, nicht
                * eine zuckende Karte. Und wer zieht, folgt dem Zeiger: eine zweite
                * Skalierung obendrauf würde beim Loslassen sichtbar springen.
                */
-              !isDragged && "[&:active:not(:has(button:active))]:scale-[0.985]",
+              // No press-scale on the container: menu presses must never move the card.
               disabled && !selected && "pointer-events-none opacity-40",
               disabled && selected && "opacity-70",
               isDragged && "shadow-[0_16px_36px_rgba(0,0,0,0.22),0_0_0_1px_var(--sep)]"
@@ -382,30 +434,8 @@ export function PresetBar({
         );
       })}
 
-      <button
-        onClick={onAdd}
-        disabled={disabled}
-        title={disabled ? lockReason : "Neues Preset"}
-        aria-label="Neues Preset"
-        className="grid w-[66px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
-      >
-        <Plus className="h-5 w-5" strokeWidth={1.8} />
-      </button>
       </div>
-
-      {/*
-        Steht außerhalb der Leiste und scrollt nicht mit: Alle Presets sind immer
-        einen Klick entfernt, auch wenn die Leiste längst überläuft.
-      */}
-      <button
-        onClick={onOpenGrid}
-        disabled={disabled}
-        title={disabled ? lockReason : "Alle Presets"}
-        aria-label="Alle Presets"
-        className="mb-5 mt-3 grid w-[54px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
-      >
-        <LayoutGrid className="h-[18px] w-[18px]" strokeWidth={1.8} />
-      </button>
+    </div>
     </div>
   );
 }

@@ -14,7 +14,7 @@ export function createLimiter(getLimit: number | (() => number)) {
   return function run<T>(task: () => Promise<T>): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       waiting.push(() => {
-        task()
+        Promise.resolve().then(task)
           .then(resolve, reject)
           .finally(() => {
             active--;

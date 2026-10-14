@@ -44,12 +44,13 @@ export function SettingsSheet({
         <Group title="Leistung">
           <Row
             label="Grafikkarte verwenden"
+            /* Erst der Nutzen, dann das Warum: „NVENC" allein sagt niemandem etwas. */
             sub={
               hardware.available
-                ? [hardware.gpu, hardware.encoder].filter(Boolean).join(" · ")
+                ? ["Konvertiert spürbar schneller", [hardware.gpu, hardware.encoder].filter(Boolean).join(" · ")].filter(Boolean).join(" · ")
                 : hardware.hidden
-                  ? "Der Browser verdeckt die Grafikkarte – konvertiert wird trotzdem"
-                  : "Keine Grafikkarte gefunden"
+                  ? "Der Browser verdeckt den Namen – konvertiert wird auf der CPU"
+                  : "Keine geeignete Grafikkarte gefunden – konvertiert wird auf der CPU"
             }
           >
             <Switch
@@ -76,6 +77,33 @@ export function SettingsSheet({
           </Row>
         </Group>
 
+        <Group
+          title="Metadaten"
+          footer="Der Schlüssel bleibt auf diesem Rechner und wird nur für die Suche bei TMDB benutzt. Kostenlos erhältlich nach der Anmeldung bei themoviedb.org unter „API“."
+        >
+          <Row label="TMDB-Schlüssel" sub={settings.tmdbKey ? "Suche eingerichtet" : "Ohne Schlüssel bleibt nur das Ausfüllen von Hand"}>
+            <TextField
+              value={settings.tmdbKey}
+              placeholder="API-Schlüssel"
+              className="w-[220px] text-left"
+              onChange={(v) => onChange({ tmdbKey: v.trim() })}
+            />
+          </Row>
+          <Row label="Sprache der Suche">
+            <Select
+              value={settings.tmdbLanguage}
+              onChange={(l) => onChange({ tmdbLanguage: l })}
+              options={[
+                { value: "de", label: "Deutsch" },
+                { value: "en", label: "Englisch" },
+                { value: "fr", label: "Französisch" },
+                { value: "es", label: "Spanisch" },
+                { value: "it", label: "Italienisch" },
+              ]}
+            />
+          </Row>
+        </Group>
+
         <Group title="Ausgabe">
           <Row label="Ordnername">
             <TextField
@@ -84,7 +112,10 @@ export function SettingsSheet({
               onChange={(v) => onChange({ outFolderName: v.replace(/[\\/:*?"<>|]/g, "") })}
             />
           </Row>
-          <Row label="Gemerkte Ordner">
+          <Row
+            label="Gemerkte Ordner"
+            sub="Ordner, die sich die App als Ziel gemerkt hat. Vergessen lässt die Originale unberührt."
+          >
             <Btn
               variant="plain"
               disabled={forgotten}

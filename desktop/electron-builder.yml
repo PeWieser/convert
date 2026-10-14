@@ -1,0 +1,26 @@
+appId: de.pewieser.wandler
+productName: Wandler
+asar: true
+directories:
+  output: release
+files:
+  - build/**
+  - package.json
+extraResources:
+  - from: setup-ffmpeg.ps1
+    to: setup-ffmpeg.ps1
+  - from: ffmpeg-manifest.json
+    to: ffmpeg-manifest.json
+win:
+  icon: assets/wandler.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: Wandler-${version}-Setup.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  allowToChangeInstallationDirectory: true
+  include: installer.nsh
+  installerLanguages: [de_DE, en_US]

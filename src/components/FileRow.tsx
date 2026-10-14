@@ -1,6 +1,7 @@
-import { Check, Play, RotateCw, X } from "lucide-react";
+import { Check, FolderOpen, Play, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { adjustmentsSummary, estimateOutputBytes } from "../lib/job";
+import { adjustmentsSummary, estimateOutputBytes, resolveJob, routeLabel } from "../lib/job";
+import { metadataSummary } from "../lib/metadata";
 import { extOf, formatBytes, formatDuration, resolutionLabel } from "../lib/format";
 import { sourceCodecLabel } from "../lib/formats";
 import type { Item, Preset } from "../lib/types";
@@ -72,6 +73,7 @@ export function FileRow({
   onRemove,
   onRetry,
   onOpen,
+  onReveal,
   selected = false,
   onToggleSelect,
   onClearSelection,
@@ -83,6 +85,8 @@ export function FileRow({
   onRetry: (id: string) => void;
   /** Doppelklick auf die Zeile: abspielen, drehen, zuschneiden, schneiden. */
   onOpen?: (id: string) => void;
+  /** Fertige Datei im Dateimanager zeigen – nur, wo es das gibt (Desktop). */
+  onReveal?: (item: Item) => void;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
   onClearSelection?: () => void;
@@ -90,6 +94,22 @@ export function FileRow({
   const { status, info } = item;
   const removable = !locked && status !== "converting" && status !== "queued";
   const estimate = info && status === "ready" ? estimateOutputBytes(preset, info, item.adjustments) : 0;
+  /*
+   * Der Weg dieser Datei: Wird kopiert oder neu gerechnet? Bei einer TS-Datei
+   * in MP4 ist das die eigentliche Frage – sie wird hier beantwortet, bevor
+   * konvertiert wird, nicht danach.
+   */
+  const job = info ? resolveJob(preset, info, item.adjustments) : undefined;
+  const route = job ? routeLabel(job.route) : "";
+  const lossless = !!job && job.route.video !== "encode" && job.route.audio !== "encode";
+  /*
+   * Die gute Nachricht ist keine Nachricht: „Ohne Qualitätsverlust" steht bei
+   * jeder Datei, die einfach durchläuft, und macht die eine Datei unsichtbar,
+   * bei der wirklich gerechnet wird. Deshalb steht sie hier ruhig und grau,
+   * und nur der Eingriff steht da, wo das Auge hängen bleibt.
+   */
+  const routeNeutral = route === "Ohne Qualitätsverlust" || route === "Ton bleibt, wie er ist";
+  const tags = metadataSummary(item.metadata);
   const adjusted = adjustmentsSummary(item.adjustments);
   const canOpen = !!onOpen && !!info && !locked;
   const isAudio = !!info && !info.video;
@@ -109,6 +129,11 @@ export function FileRow({
     secondary = item.health.note;
     tone = "text-warn";
   } else secondary = details(item);
+
+  /* Der Hinweis steht bei jeder Zeile, die noch nicht fertig ist – er erklärt, was gleich passiert. */
+  const showRoute = !!job && status !== "done" && status !== "failed" && status !== "converting";
+  /* Fertige Datei mit Weg dorthin – der Knopf braucht seine Zeile. */
+  const showReveal = status === "done" && !!item.outId && !!onReveal;
 
   return (
     <li
@@ -166,9 +191,45 @@ export function FileRow({
           {item.source.name}
         </div>
         <div className={cn("mt-[3px] line-clamp-2 text-[12px] leading-snug", tone)}>{secondary}</div>
+        {(showRoute || tags || showReveal) && (
+          <div className="mt-1 flex items-center gap-1.5 overflow-hidden text-[11px] text-label2">
+            {showRoute && (
+              <span
+                className={cn(
+                  "shrink-0 whitespace-nowrap transition-opacity group-hover:opacity-0",
+                  routeNeutral
+                    ? "text-label3"
+                    : "rounded-full bg-warn/12 px-1.5 py-[1px] font-medium text-warn",
+                  lossless && !routeNeutral && "bg-ok/12 text-ok"
+                )}
+                title={job?.route.note}
+              >
+                {route}
+              </span>
+            )}
+            {tags && <span className="truncate">{tags}</span>}
+            {/*
+              Die Schleife schließt sich hier: Nach dem Lauf steht nicht nur eine
+              Zahl in der Zeile, sondern ein Weg zur Datei.
+            */}
+            {status === "done" && item.outId && onReveal && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReveal(item);
+                }}
+                title="Im Ordner zeigen"
+                className="ml-auto shrink-0 rounded-full px-1.5 py-[1px] text-[11px] font-medium text-accent transition hover:bg-accent/10"
+              >
+                <FolderOpen className="mr-1 inline h-3 w-3 align-[-2px]" strokeWidth={2.4} />
+                Zeigen
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      <div className="flex h-8 shrink-0 items-center gap-1.5">
+      <div className="mr-7 flex h-8 shrink-0 items-center gap-1.5">
         {adjusted && (
           <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
             {adjusted}
@@ -198,9 +259,9 @@ export function FileRow({
         Zeile berührt wird, erscheint das X – der Haken tritt dafür zurück.
         Kein Haken ohne geschriebene Datei: „Übersprungen" ist kein Erfolg.
       */}
-      {status === "done" && item.outSize !== undefined && (
+      {status === "done" && item.outSize !== undefined && item.delivery !== "download" && (
         <span
-          className="anim-fade-soft absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok opacity-100 shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-opacity duration-200 group-hover:opacity-0"
+          className={cn("file-success absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok shadow-[0_1px_2px_rgba(0,0,0,0.18)]", removable && "file-success-removable")}
           aria-label="Fertig"
         >
           <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
@@ -215,7 +276,7 @@ export function FileRow({
           }}
           onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`${item.source.name} entfernen`}
-          className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 opacity-0 transition hover:bg-fill2 hover:text-label focus-visible:opacity-100 active:scale-90 group-hover:opacity-100"
+          className="file-remove absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 hover:bg-fill2 hover:text-label active:scale-90"
           style={status === "failed" && !item.final ? { right: 48 } : undefined}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2.4} />

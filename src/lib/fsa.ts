@@ -3,6 +3,8 @@ import { isMediaName } from "./formats";
 import { uid } from "./format";
 import { idbDelete, idbGet, idbSet } from "./storage";
 import { baseName } from "./format";
+import { OutputWriteError, transactionalStream } from "./io";
+import { createLimiter } from "./queue";
 import { chooseName } from "./platform";
 import type { FolderRef, OutputSink, PlatformFS, Target } from "./platform";
 import type { Settings, SourceFile } from "./types";
@@ -38,8 +40,8 @@ async function walk(dir: DirHandle, rel: string[], root: DirHandle, skip: string
       try {
         const fh = handle as FileHandle;
         acc.push({ id: uid(), file: await fh.getFile(), name, handle: fh, root, relDirs: rel });
-      } catch {
-        /* nicht lesbar – überspringen */
+      } catch (e) {
+        throw new Error(`„${name}“ konnte nicht eingelesen werden. Prüfe die Verbindung zum Quellordner. ${e instanceof Error ? e.message : ""}`);
       }
     }
   }
@@ -48,7 +50,7 @@ async function walk(dir: DirHandle, rel: string[], root: DirHandle, skip: string
 async function fromDirectory(dir: DirHandle, skip: string): Promise<SourceFile[]> {
   const acc: SourceFile[] = [];
   await walk(dir, [], dir, skip, acc);
-  await addKnownFolder(dir);
+  await addKnownFolder(dir).catch(() => undefined);
   return acc;
 }
 
@@ -77,27 +79,23 @@ function pickViaInput(directory: boolean): Promise<SourceFile[]> {
 
 export async function pickFiles(): Promise<SourceFile[]> {
   if (!fsaSupported) return pickViaInput(false);
-  try {
-    const handles: FileHandle[] = await w.showOpenFilePicker({ multiple: true, id: "wandler-quelle" });
-    const out: SourceFile[] = [];
-    for (const h of handles) out.push({ id: uid(), file: await h.getFile(), name: h.name, handle: h, relDirs: [] });
-    return sortSources(out);
-  } catch (e) {
-    if (isAbort(e)) return [];
-    // Dialog blockiert (z. B. eingebettetes Fenster) → Standard-Dialog
-    return pickViaInput(false);
+  let handles: FileHandle[];
+  try { handles = await w.showOpenFilePicker({ multiple: true, id: "wandler-quelle" }); }
+  catch (e) { if (isAbort(e)) return []; return pickViaInput(false); }
+  const out: SourceFile[] = [];
+  for (const h of handles) {
+    try { out.push({ id: uid(), file: await h.getFile(), name: h.name, handle: h, relDirs: [] }); }
+    catch { throw new Error(`„${h.name}“ konnte nicht eingelesen werden. Bitte die Verbindung zur Quelle prüfen und erneut hinzufügen.`); }
   }
+  return sortSources(out);
 }
 
 export async function pickFolder(skip: string): Promise<SourceFile[]> {
   if (!fsaSupported) return pickViaInput(true);
-  try {
-    const dir: DirHandle = await w.showDirectoryPicker({ id: "wandler-quelle", mode: "readwrite" });
-    return sortSources(await fromDirectory(dir, skip));
-  } catch (e) {
-    if (isAbort(e)) return [];
-    return pickViaInput(true);
-  }
+  let dir: DirHandle;
+  try { dir = await w.showDirectoryPicker({ id: "wandler-quelle", mode: "readwrite" }); }
+  catch (e) { if (isAbort(e)) return []; return pickViaInput(true); }
+  return sortSources(await fromDirectory(dir, skip));
 }
 
 /** Muss synchron im drop-Handler gestartet werden (DataTransfer wird danach ungültig). */
@@ -118,8 +116,8 @@ export async function collectFromDrop(dt: DataTransfer, skip: string): Promise<S
           const fh = h as FileHandle;
           acc.push({ id: uid(), file: await fh.getFile(), name: fh.name, handle: fh, relDirs: [] });
         }
-      } catch {
-        /* nicht lesbar – überspringen */
+      } catch (e) {
+        throw new Error(`„${h.name}“ konnte nicht vollständig gelesen werden. Bitte die Verbindung zur Quelle prüfen. ${e instanceof Error ? e.message : ""}`);
       }
     }
     if (acc.length) return sortSources(acc);
@@ -304,16 +302,18 @@ function triggerDownload(blob: Blob, name: string) {
 }
 
 /** Gibt `null` zurück, wenn die Datei übersprungen werden soll. */
-export async function open(target: Target, source: SourceFile, ext: string, settings: Settings): Promise<OutputSink | null> {
+async function openUnsafe(target: Target, source: SourceFile, ext: string, settings: Settings): Promise<OutputSink | null> {
   const base = sanitize(baseName(source.name));
 
   if (target.kind === "download") {
     const name = `${base}.${ext}`;
     return {
-      place: "Downloads",
+      place: "Download angefordert",
+      delivery: "download",
       async finish(blob) {
-        if (blob) triggerDownload(blob, name);
-        return blob?.size ?? 0;
+        if (!blob?.size) throw new OutputWriteError("Die Ausgabe ist leer.");
+        triggerDownload(blob, name);
+        return blob.size;
       },
       async discard() {
         /* nichts geschrieben */
@@ -332,39 +332,67 @@ export async function open(target: Target, source: SourceFile, ext: string, sett
   for await (const [name] of (dir as any).entries() as AsyncIterable<[string, unknown]>) entries.add(name);
 
   let sameAsSource = false;
-  if (source.handle && entries.has(`${base}.${ext}`)) {
+  if (source.handle && [...entries].some((n) => n.toLocaleLowerCase() === `${base}.${ext}`.toLocaleLowerCase())) {
     try {
       sameAsSource = await (await dir.getFileHandle(`${base}.${ext}`)).isSameEntry(source.handle);
     } catch {
       /* ignorieren */
     }
   }
-  const name = chooseName(base, ext, (n) => entries.has(n), settings.collision, sameAsSource);
+  const held = new Set<string>();
+  for (const r of reservations) {
+    if (await r.dir.isSameEntry(dir)) held.add(r.name.toLocaleLowerCase());
+  }
+  const exists = (n: string) => [...entries].some((e) => e.toLocaleLowerCase() === n.toLocaleLowerCase()) || held.has(n.toLocaleLowerCase());
+  const collision = held.has(`${base}.${ext}`.toLocaleLowerCase()) && settings.collision === "overwrite" ? "number" : settings.collision;
+  const name = chooseName(base, ext, exists, collision, sameAsSource);
   if (!name) return null;
 
-  const fh = await dir.getFileHandle(name, { create: true });
-  const writable = await fh.createWritable();
-  const place = [root.name, ...target.sub].join(" / ");
-  const finalDir = dir;
-  return {
-    writable,
-    place,
-    async finish() {
-      return (await fh.getFile()).size;
-    },
-    async discard() {
-      try {
-        await writable.abort();
-      } catch {
-        /* bereits geschlossen */
-      }
-      try {
-        await finalDir.removeEntry(name);
-      } catch {
-        /* nichts zu entfernen */
-      }
-    },
-  };
+  const existed = [...entries].some((e) => e.toLocaleLowerCase() === name.toLocaleLowerCase());
+  const reservation = { dir, name };
+  reservations.add(reservation);
+  const release = () => reservations.delete(reservation);
+  try {
+    const fh = await dir.getFileHandle(name, { create: true });
+    const transaction = transactionalStream(await fh.createWritable());
+    const place = [root.name, ...target.sub].join(" / ");
+    let committed = false;
+    return {
+      writable: transaction.writable,
+      delivery: "saved",
+      place,
+      async finish() {
+        try {
+          await transaction.commit();
+          committed = true;
+          const size = (await fh.getFile()).size;
+          if (!size) throw new OutputWriteError("Die Ausgabe ist leer.");
+          release();
+          return size;
+        } catch (e) {
+          throw e instanceof OutputWriteError ? e : new OutputWriteError(e);
+        }
+      },
+      async discard() {
+        await transaction.abort();
+        // Never delete an existing destination, even after a failed overwrite.
+        if (!existed && !committed) await dir.removeEntry(name).catch(() => undefined);
+        release();
+      },
+    };
+  } catch (e) {
+    release();
+    throw e;
+  }
+}
+
+const reservations = new Set<{ dir: DirHandle; name: string }>();
+const openLimit = createLimiter(1);
+export function open(target: Target, source: SourceFile, ext: string, settings: Settings): Promise<OutputSink | null> {
+  return openLimit(async () => {
+    try { return await openUnsafe(target, source, ext, settings); }
+    catch (e) { throw new OutputWriteError(e); }
+  });
 }
 
 /** Die Web-Implementierung der Naht: File System Access hinter `PlatformFS`. */

@@ -338,11 +338,14 @@ export function TextField({
   onChange,
   placeholder,
   className,
+  ariaLabel,
 }: {
   value: string;
   onChange: (v: string) => void;
   placeholder?: string;
   className?: string;
+  /** Für Vorleseprogramme – die Zeilenbeschriftung ist keine Feldbeschriftung. */
+  ariaLabel?: string;
 }) {
   const id = useId();
   return (
@@ -350,6 +353,7 @@ export function TextField({
       id={id}
       value={value}
       placeholder={placeholder}
+      aria-label={ariaLabel}
       onChange={(e) => onChange(e.target.value)}
       className={cn(
         "h-8 w-44 rounded-lg bg-fill px-2.5 text-right text-[14px] transition hover:bg-fill2 focus:ring-2 focus:ring-accent/50",

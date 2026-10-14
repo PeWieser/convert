@@ -1,3 +1,4 @@
+import { devicePreset, isIpod } from "./compatibility";
 import { CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_SHORT, AUDIO_CODEC_LABEL } from "./formats";
 import { formatNumber } from "./format";
 import type { AudioSettings, MediaInfo, Preset, VideoSettings } from "./types";
@@ -40,6 +41,7 @@ export function ipodPreset(): Preset {
     name: "iPod touch 1G",
     icon: "smartphone",
     builtin: "ipod",
+    compatibility: "ipod-touch-1g",
     container: "mp4",
     video: {
       ...BASE_VIDEO,
@@ -103,6 +105,7 @@ export function cloneAsNew(base: Preset, name?: string): Preset {
 
 /** Stellt sicher, dass Codecs zum Container passen. */
 export function normalizePreset(p: Preset): Preset {
+  p = devicePreset(p);
   const c = CONTAINERS[p.container];
   const video = { ...p.video };
   const audio = { ...p.audio };
@@ -198,6 +201,7 @@ export function willCopyVideo(p: Preset, info: MediaInfo, adjusted: boolean): bo
 export function willCopyAudio(p: Preset, info: MediaInfo): boolean {
   const a = p.audio;
   const src = info.audio;
+  if (isIpod(p)) return false; // AAC alone does not prove AAC-LC; never copy HE-AAC.
   if (!src || a.codec === "none") return false;
   if (a.codec === "copy") return true;
   if (MB_AUDIO[a.codec] !== src.codec) return false;

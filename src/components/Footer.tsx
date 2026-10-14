@@ -2,7 +2,7 @@ import { AlertTriangle, ChevronDown, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
-import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
+import { formatBytes, formatDuration, formatRemaining, modKey, plural } from "../lib/format";
 import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
 import { Btn, Menu, MenuItem } from "./ui";
@@ -13,17 +13,23 @@ import { Btn, Menu, MenuItem } from "./ui";
  * Aussagen, kein Platzverlust.
  */
 function CyclingNames({ names }: { names: string[] }) {
-  const [index, setIndex] = useState(0);
+  const viewport = useRef<HTMLSpanElement>(null);
+  const text = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(0);
+  const label = names.join("   ·   ");
   useEffect(() => {
-    if (names.length < 2) return;
-    const t = setInterval(() => setIndex((i) => i + 1), 2600);
-    return () => clearInterval(t);
-  }, [names.length]);
-  if (!names.length) return <span className="min-w-0 flex-1" />;
-  const name = names[index % names.length];
+    const measure = () => setOverflow(Math.max(0, (text.current?.scrollWidth ?? 0) - (viewport.current?.clientWidth ?? 0)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (viewport.current) observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, [label]);
   return (
-    <span key={name} className="anim-fade min-w-0 flex-1 truncate px-3 text-center font-medium text-label">
-      {name}
+    <span className="mx-3 min-w-0 flex-1 overflow-hidden text-center font-medium text-label" ref={viewport} title={label}>
+      <span key={label} ref={text} className={overflow > 0 ? "filename-scroll inline-block whitespace-pre" : "inline-block whitespace-pre"}
+        style={{ "--scroll-distance": `${-overflow}px`, animationDuration: `${Math.max(8, overflow / 28 + 4)}s` } as import("react").CSSProperties}>
+        {label}
+      </span>
     </span>
   );
 }
@@ -107,7 +113,7 @@ export function Footer({
   const readyBytes = scope.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info, i.adjustments) : 0), 0);
 
   const custom = settings.destination === "custom" && !!settings.customDestinationName;
-  const anyFolderSource = items.some((i) => i.source.root);
+  const anyFolderSource = items.some((i) => i.source.root || i.source.native);
   const autoLabel = anyFolderSource ? "Neben den Originalen" : "Downloads";
   const label = !fsSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
 
@@ -116,7 +122,7 @@ export function Footer({
     status = (
       <div className="anim-fade flex min-w-0 items-center gap-2 text-[13px] text-warn" role="alert">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span className="truncate">{notice}</span>
+        <span className="min-w-0 flex-1 whitespace-normal">{notice}</span>
         <button
           onClick={onDismissNotice}
           aria-label="Schließen"
@@ -226,17 +232,24 @@ export function Footer({
 
         {running ? (
           confirmStop ? (
-            <Btn
-              size="lg"
-              variant="primary"
-              className="!bg-bad"
-              onClick={() => {
-                setConfirmStop(false);
-                onStop();
-              }}
-            >
-              Wirklich stoppen
-            </Btn>
+            /* Beide Wege stehen gleichwertig da – eine Frage mit nur einer
+               Antwort ist keine Frage, sondern eine Falle. */
+            <div className="flex items-center gap-2">
+              <Btn size="lg" variant="plain" onClick={() => setConfirmStop(false)}>
+                Weiterlaufen
+              </Btn>
+              <Btn
+                size="lg"
+                variant="primary"
+                className="!bg-bad"
+                onClick={() => {
+                  setConfirmStop(false);
+                  onStop();
+                }}
+              >
+                Wirklich stoppen
+              </Btn>
+            </div>
           ) : (
             <Btn size="lg" onClick={() => setConfirmStop(true)}>
               Stoppen
@@ -260,7 +273,13 @@ export function Footer({
                 Auswahl aufheben
               </Btn>
             )}
-            <Btn variant="primary" size="lg" onClick={onStart} disabled={!scope.length || checking || planning}>
+            <Btn
+              variant="primary"
+              size="lg"
+              onClick={onStart}
+              disabled={!scope.length || checking || planning}
+              title={`Konvertieren starten  ${modKey()}+↩`}
+            >
               {selected.length ? "Auswahl konvertieren" : "Konvertieren"}
             </Btn>
           </>

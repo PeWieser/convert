@@ -1,30 +1,29 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ConvertError, webEngine } from "../lib/engine";
+import { uniqueSources } from "../lib/sources";
+import { nativePlatform } from "../lib/native";
+import { webPresetIssue } from "../lib/compatibility";
 import { plural } from "../lib/format";
 import { CONTAINERS } from "../lib/formats";
 import { webFS } from "../lib/fsa";
 import type { MediaEngine, PlatformFS, Target } from "../lib/platform";
 
 /** Die Naht, an der die Desktop-App später eine andere Implementierung einsetzt. */
-const fs: PlatformFS = webFS;
-const engine: MediaEngine = webEngine;
+const native = nativePlatform();
+const fs: PlatformFS = native?.fs ?? webFS;
+const engine: MediaEngine = native?.engine ?? webEngine;
 import { detectHardware } from "../lib/hardware";
 import { NO_ADJUSTMENTS } from "../lib/job";
 import { moveTo } from "../lib/order";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
-import type { Adjustments, Capabilities, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
+import type { Adjustments, Capabilities, FileMetadata, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
 
 /** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
 const willRearm = (i: Item) =>
   (i.status === "done" || (i.status === "failed" && i.health.state !== "broken")) && !!i.info;
 
-const sameFile = (a: SourceFile, b: SourceFile) =>
-  a.name === b.name &&
-  a.file.size === b.file.size &&
-  a.file.lastModified === b.file.lastModified &&
-  a.relDirs.join("/") === b.relDirs.join("/");
 
 export interface Overall {
   fraction: number;
@@ -36,7 +35,7 @@ export interface Overall {
 export function useApp() {
   const [presets, setPresets] = usePersistent<Preset[]>("wandler.presets.v1", defaultPresets, (stored) =>
     Array.isArray(stored) && stored.length
-      ? stored.map((p) => ({ ...p, video: { ...BASE_VIDEO, ...p.video }, audio: { ...BASE_AUDIO, ...p.audio } }))
+      ? stored.map((p) => normalizePreset({ ...p, video: { ...BASE_VIDEO, ...p.video }, audio: { ...BASE_AUDIO, ...p.audio } }))
       : defaultPresets()
   );
   const [settings, setSettings] = usePersistent<Settings>(
@@ -44,10 +43,12 @@ export function useApp() {
     () => DEFAULT_SETTINGS,
     // `concurrency` war in früheren Versionen unbenutzt und stand auf 1;
     // gemeint war „automatisch", das ist heute die 0.
-    (s) => ({ ...DEFAULT_SETTINGS, ...s, concurrency: s.concurrency === 1 ? 0 : (s.concurrency ?? 0) })
+    (s) => ({ ...DEFAULT_SETTINGS, ...s, concurrency: Math.max(0, Math.min(8, s.concurrency ?? 0)) })
   );
   const [items, setItems] = useState<Item[]>([]);
   const [running, setRunning] = useState(false);
+  const [collecting, setCollecting] = useState(false);
+  const importBusy = useRef(false);
   const [planning, setPlanning] = useState(false);
   const [overall, setOverall] = useState<Overall | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -56,7 +57,7 @@ export function useApp() {
    * eine bewusste Einschränkung, kein dauerhafter Modus.
    */
   const [selected, setSelected] = useState<string[]>([]);
-  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
+  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false, metadata: true, cover: false });
   /*
    * Der erste Blick kommt aus WebGL, damit das Fenster nicht leer steht. Die
    * Auskunft, auf die sich die App verlässt, liefert die Engine: im Web gefiltert
@@ -84,7 +85,10 @@ export function useApp() {
     engine
       .init()
       .then(setCaps)
-      .catch(() => setCaps({ video: [], audio: [], ready: false, subtitles: false }));
+      .catch((e) => {
+        setCaps({ video: [], audio: [], ready: false, subtitles: false, metadata: true, cover: false });
+        setNotice(e instanceof Error ? e.message : "Die Konvertierung konnte nicht vorbereitet werden.");
+      });
   }, []);
   useEffect(() => {
     loadEngine();
@@ -236,14 +240,9 @@ export function useApp() {
   }, []);
 
   const addSources = useCallback(
-    (sources: SourceFile[]) => {
+    async (sources: SourceFile[]) => {
       if (!sources.length) return;
-      const accepted: SourceFile[] = [];
-      for (const s of sources) {
-        if (itemsRef.current.some((i) => sameFile(i.source, s))) continue;
-        if (accepted.some((a) => sameFile(a, s))) continue;
-        accepted.push(s);
-      }
+      const accepted = await uniqueSources(itemsRef.current.map((i) => i.source), sources);
       if (!accepted.length) return;
       const fresh: Item[] = accepted.map((s) => ({
         id: s.id,
@@ -272,7 +271,8 @@ export function useApp() {
               if (i.id !== s.id) return i;
               if (r.health.state === "broken")
                 return { ...i, status: "failed", health: r.health, message: r.health.reason, final: true, info: r.info, thumb: r.thumb };
-              return { ...i, status: "ready", health: r.health, info: r.info, thumb: r.thumb };
+              /* Was in der Datei steht, ist der Ausgangsstand des Metadaten-Reiters. */
+              return { ...i, status: "ready", health: r.health, info: r.info, thumb: r.thumb, metadata: r.info?.tags };
             });
           });
         }).catch(() => undefined);
@@ -281,15 +281,17 @@ export function useApp() {
     [probeLimit]
   );
 
-  const addFiles = useCallback(async () => addSources(await fs.pickFiles()), [addSources]);
-  const addFolder = useCallback(
-    async () => addSources(await fs.pickFolder(settings.outFolderName)),
-    [addSources, settings.outFolderName]
-  );
-  const addDrop = useCallback(
-    async (dt: DataTransfer) => addSources(await fs.collectFromDrop(dt, settings.outFolderName)),
-    [addSources, settings.outFolderName]
-  );
+  const collect = useCallback(async (pick: () => Promise<SourceFile[]>) => {
+    if (importBusy.current) return;
+    importBusy.current = true;
+    setCollecting(true);
+    try { await addSources(await pick()); }
+    catch (e) { setNotice(e instanceof Error ? e.message : "Die Dateien konnten nicht gelesen werden."); }
+    finally { importBusy.current = false; setCollecting(false); }
+  }, [addSources]);
+  const addFiles = useCallback(() => collect(() => fs.pickFiles()), [collect]);
+  const addFolder = useCallback(() => collect(() => fs.pickFolder(settings.outFolderName)), [collect, settings.outFolderName]);
+  const addDrop = useCallback((dt: DataTransfer) => collect(() => fs.collectFromDrop(dt, settings.outFolderName)), [collect, settings.outFolderName]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelected((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -373,6 +375,64 @@ export function useApp() {
     );
   }, []);
 
+  /**
+   * Legt fest, was in der Ausgabe stehen soll. Wie bei den Anpassungen wird
+   * eine fertige Datei damit wieder fällig – sonst stünde ein Ergebnis da,
+   * das nicht mehr zeigt, was eingestellt ist.
+   */
+  const setMetadata = useCallback((id: string, metadata: FileMetadata) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i, metadata };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  /**
+   * Eine fertige Datei im Dateimanager zeigen.
+   *
+   * Der Nutzer hat auf „Konvertieren" gedrückt und wartet. Danach steht eine
+   * Zahl im Fenster, aber nicht die Datei. Dieser eine Klick schließt die
+   * Schleife – und wenn er nicht geht, sagt die App warum, statt zu schweigen.
+   */
+  const revealOutput = useCallback(async (item: Item) => {
+    const bridge = window.wandler;
+    if (!bridge || !item.outId) {
+      setNotice("Diese Datei lässt sich hier nicht im Dateimanager zeigen.");
+      return;
+    }
+    const reply = await bridge.reveal(item.outId);
+    if (!reply.ok) setNotice(reply.error);
+  }, []);
+
+  /**
+   * Serie einmal ausfüllen, für alle übernehmen – aber ohne Staffel, Folge und
+   * Titel: das sind genau die Felder, die sich je Datei unterscheiden.
+   */
+  const applySeriesToAll = useCallback((metadata: FileMetadata) => {
+    const shared: FileMetadata = { ...metadata };
+    delete shared.season;
+    delete shared.episode;
+    delete shared.episodeTitle;
+    setItems((arr) =>
+      arr.map((i) => {
+        if (!i.info || i.info.video === undefined && i.info.audio === undefined) return i;
+        const next = { ...i, metadata: { ...shared } };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
   /** Dieselben Anpassungen für alle Dateien – spart Klicks bei einer Serie. */
   const applyAdjustmentsToAll = useCallback((adj: Adjustments) => {
     setItems((arr) =>
@@ -393,7 +453,9 @@ export function useApp() {
   const stop = useCallback(() => abortRef.current?.abort(), []);
 
   const start = useCallback(async () => {
-    if (running || planning) return;
+    if (running || planning || collecting || abortRef.current) return;
+    const issue = engine === webEngine ? webPresetIssue(preset) : null;
+    if (issue) { setNotice(issue); return; }
     const scope = selected.length ? selected : null;
     const todo = itemsRef.current.filter(
       (i) => i.status === "ready" && i.info && (!scope || scope.includes(i.id))
@@ -401,6 +463,7 @@ export function useApp() {
     if (!todo.length || itemsRef.current.some((i) => i.status === "checking")) return;
 
     const ac = new AbortController();
+    abortRef.current = ac;
     setNotice(null);
     setPlanning(true);
 
@@ -416,18 +479,11 @@ export function useApp() {
        * Geste, die dieser Dialog verlangt.
        */
       const loose = [...targets.values()].filter((t) => t.kind === "download").length;
-      if (loose > 1 && settings.destination === "auto" && fs.supported) {
-        const chosen = await fs.chooseCustomDestination();
-        if (chosen) {
-          updateSettings({ destination: "custom" });
-          targets = await fs.planTargets(sources, { ...settings, destination: "custom" });
-        } else {
-          setNotice(
-            "Kein Zielordner gewählt. Die Dateien gehen einzeln in den Download-Ordner – der Browser fragt dafür nach, ob er mehrere Dateien speichern darf."
-          );
-        }
+      if (loose > 1) {
+        throw new Error("Bitte zuerst über das Ziel-Menü einen Zielordner wählen. Mehrfach-Downloads können vom Browser unbemerkt blockiert werden. Es wurde nichts konvertiert.");
       }
     } catch (e) {
+      abortRef.current = null;
       setPlanning(false);
       setNotice(e instanceof Error ? e.message : "Der Zielordner konnte nicht vorbereitet werden. Es wurde nichts konvertiert.");
       return;
@@ -482,6 +538,7 @@ export function useApp() {
               info,
               preset: current,
               adj: item.adjustments,
+              metadata: item.metadata,
               hardware: settings.hardware,
               signal: ac.signal,
               openOutput: () => fs.open(target, item.source, ext, settings),
@@ -509,7 +566,9 @@ export function useApp() {
                 status: "done",
                 progress: 1,
                 outSize: res.size,
+                delivery: res.delivery,
                 outPlace: res.place,
+                outId: res.outputId,
                 message: res.note ?? healed,
                 repaired: !!res.repaired || (!res.note && !!healed),
               });
@@ -536,7 +595,7 @@ export function useApp() {
     abortRef.current = null;
     setRunning(false);
     setOverall(null);
-  }, [running, planning, settings, preset, patch, hardware.available, updateSettings]);
+  }, [running, planning, collecting, selected, settings, preset, patch, hardware.available, updateSettings]);
 
   return {
     presets,
@@ -546,7 +605,8 @@ export function useApp() {
     running,
     planning,
     /** Solange gilt: keine Einstellung lässt sich ändern. Ein Zustand, kein Flickwerk. */
-    locked: running || planning,
+    locked: running || planning || collecting || items.some((i) => i.status === "checking"),
+    collecting,
     overall,
     notice,
     caps,
@@ -577,6 +637,9 @@ export function useApp() {
     stop,
     setAdjustments,
     applyAdjustmentsToAll,
+    setMetadata,
+    applySeriesToAll,
+    revealOutput,
     dismissNotice: () => setNotice(null),
   };
 }

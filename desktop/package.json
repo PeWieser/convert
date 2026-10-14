@@ -1,0 +1,23 @@
+{
+  "name": "wandler-desktop",
+  "version": "1.0.0",
+  "description": "Wandler – lokale Medienkonvertierung mit FFmpeg",
+  "author": "PeWieser",
+  "license": "MIT",
+  "private": true,
+  "main": "build/main.cjs",
+  "scripts": {
+    "build": "node build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "start": "electron .",
+    "pack": "electron-builder --win nsis --publish never"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.17",
+    "electron": "44.7.1",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.1",
+    "typescript": "5.9.3",
+    "zod": "^4.3.6"
+  }
+}

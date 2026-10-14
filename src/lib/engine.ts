@@ -43,6 +43,9 @@ import type {
   InputVideoTrack,
   OutputFormat,
 } from "mediabunny";
+import { OutputWriteError } from "./io";
+import { mediabunnyTags } from "./metadata";
+import { webPresetIssue } from "./compatibility";
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputSink } from "./platform";
@@ -50,7 +53,7 @@ import { detectHardware, withEncoderTruth } from "./hardware";
 import { estimateOutputBytes, fastStartMode, resolveJob } from "./job";
 import type { Job } from "./job";
 import type { MediaEngine } from "./platform";
-import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+import type { Adjustments, AudioCodecId, Capabilities, FileMetadata, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
 
 /** `navigator.deviceMemory` kennt nur Chromium – fehlt es, rechnet die App vorsichtig. */
 function deviceMemoryGb(): number {
@@ -102,7 +105,7 @@ const LAZY_ENCODERS: { codec: "aac" | "mp3" | "flac"; label: string; register: (
 export function initEngine(): Promise<Capabilities> {
   if (!capsPromise) {
     capsPromise = (async () => {
-      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false };
+      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false, metadata: false, cover: false };
       const missing: string[] = [];
       for (const e of LAZY_ENCODERS) {
         try {
@@ -127,6 +130,10 @@ export function initEngine(): Promise<Capabilities> {
         ready: true,
         // WebCodecs kann Untertitel weder einbrennen noch entfernen – die Desktop-App kann es.
         subtitles: false,
+        // Titel, Serie und Beschreibung schreibt die Engine in die Tags der Ausgabe.
+        metadata: true,
+        // Ein Titelbild als eigene Spur kann WebCodecs nicht anhängen.
+        cover: false,
         missing: missing.length ? missing : undefined,
       };
     })();
@@ -194,6 +201,7 @@ async function makeThumb(track: InputVideoTrack, duration: number): Promise<stri
 
 export async function probe(source: SourceFile): Promise<ProbeResult> {
   const file = source.file;
+  if (!file) return broken("Die Quelle ist keine Browser-Datei.");
   if (file.size === 0) return broken("Die Datei ist leer (0 Bytes). Es gibt nichts, was sich retten ließe.");
   if (!engineSupported)
     return broken("Dieser Browser kann Medien nicht verarbeiten. Bitte Chrome oder Edge verwenden.");
@@ -289,9 +297,37 @@ export async function probe(source: SourceFile): Promise<ProbeResult> {
       }
     }
 
+    /*
+     * Was in der Datei schon steht, wird mitgelesen – sonst wäre der
+     * Metadaten-Reiter ein leeres Formular und der Nutzer tippte ab, was
+     * ohnehin in der Datei steht.
+     */
+    let tags: MediaInfo["tags"];
+    try {
+      const existing = await input.getMetadataTags();
+      const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+      const raw = (existing.raw ?? {}) as Record<string, unknown>;
+      const rawText = (key: string) => text(raw[key]);
+      const read = {
+        title: text(existing.title),
+        artist: text(existing.artist),
+        genre: text(existing.genre),
+        show: rawText("tvsh") ?? text(existing.album),
+        season: rawText("tvsn"),
+        episode: rawText("tves"),
+        description: text(existing.description) ?? text(existing.comment),
+        year: existing.date ? String(existing.date.getUTCFullYear()) : undefined,
+      };
+      const clean = Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined));
+      if (Object.keys(clean).length) tags = clean as MediaInfo["tags"];
+    } catch {
+      /* Metadaten sind eine Zugabe – ohne sie geht das Konvertieren weiter. */
+    }
+
     let thumb: string | undefined;
     if (vTrack) thumb = await makeThumb(vTrack, duration).catch(() => undefined);
 
+    info.tags = tags;
     return {
       info,
       thumb,
@@ -301,7 +337,7 @@ export async function probe(source: SourceFile): Promise<ProbeResult> {
     return broken(explainUnreadable(file.name));
   } finally {
     try {
-      input.dispose();
+      input?.dispose();
     } catch {
       /* ignorieren */
     }
@@ -316,6 +352,8 @@ export interface ConvertRequest {
   preset: Preset;
   /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
   adj: Adjustments;
+  /** Was in der Ausgabe stehen soll – leer heißt: die Quelle behält ihre Angaben. */
+  metadata?: FileMetadata;
   hardware: "auto" | "off";
   openOutput: () => Promise<OutputSink | null>;
   onProgress: (fraction: number, processedSeconds: number) => void;
@@ -328,6 +366,15 @@ export interface ConvertResult {
   place: string;
   repaired?: boolean;
   note?: string;
+  delivery?: "saved" | "download";
+  /**
+   * Kennung der fertigen Ausgabe im Register der Plattform.
+   *
+   * Damit lässt sich eine Datei später zeigen, ohne dass ein Pfad durch die
+   * Oberfläche wandert: Der Renderer kennt nur diese Kennung, den Pfad löst
+   * allein der Hauptprozess auf. Im Browser bleibt sie leer.
+   */
+  outputId?: string;
 }
 
 export class ConvertError extends Error {
@@ -474,7 +521,7 @@ function explainError(e: unknown, req: ConvertRequest): string {
   if (/decod/.test(low))
     return "Ein Teil der Datei ist beschädigt und lässt sich nicht dekodieren. Auch die Reparatur konnte nichts retten.";
   const dur = req.info.duration ? ` (Länge ${formatDuration(req.info.duration)})` : "";
-  return `Die Datei ist beschädigt und ließ sich nicht reparieren${dur}.`;
+  return `Die Konvertierung konnte nicht abgeschlossen werden${dur}: ${msg}`;
 }
 
 async function attempt(
@@ -486,24 +533,29 @@ async function attempt(
   const out = await req.openOutput();
   if (!out) return { status: "skipped", size: 0, place: "" };
 
-  const job = resolveJob(req.preset, req.info, req.adj);
-  const input = new Input({ source: new BlobSource(req.source.file), formats: ALL_FORMATS });
-  const useStream = !!out.writable;
-  const target = useStream
-    ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
-    : new BufferTarget();
-  const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
-  const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file.size;
-  const fast: false | "in-memory" | "fragmented" = wantsFast ? fastStartMode(expected, deviceMemoryGb()) : false;
-  const output = new Output({ format: makeFormat(p, fast), target });
-
+  let input: Input | undefined;
+  let output: Output | undefined;
   let conversion: Conversion | null = null;
-  const onAbort = () => {
-    conversion?.cancel().catch(() => undefined);
-  };
+  const onAbort = () => { conversion?.cancel().catch(() => undefined); };
   req.signal.addEventListener("abort", onAbort);
 
   try {
+    if (req.signal.aborted) throw new ConversionCanceledError();
+    const job = resolveJob(req.preset, req.info, req.adj);
+    input = new Input({ source: new BlobSource(req.source.file!), formats: ALL_FORMATS });
+    const useStream = !!out.writable;
+    const target = useStream
+      ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
+      : new BufferTarget();
+    const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
+    const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file!.size;
+    // Seekable files do not need to buffer the entire film, nor to become fMP4.
+    // Guaranteed faststart without a full RAM buffer is provided by native FFmpeg.
+    const fast = wantsFast && !useStream ? fastStartMode(expected, deviceMemoryGb()) : false;
+    if (!useStream && expected > 128_000_000) {
+      throw new OutputWriteError("Für große Dateien bitte einen Zielordner wählen; ein Browser-Download würde die gesamte Datei im RAM halten.");
+    }
+    output = new Output({ format: makeFormat(p, fast), target });
     const options: ConversionOptions = { input, output, showWarnings: false };
     const video = buildVideo(job, opts.hw, !!opts.noCopy);
     const audio = buildAudio(job);
@@ -518,13 +570,23 @@ async function attempt(
       if (trimEnd !== undefined) options.trim.end = trimEnd;
     }
     if (opts.noCopy) options.copy = false;
-    if (p.metadata === "strip") options.tags = {};
+    /*
+     * Metadaten: Erst was schon da ist (oder nichts, wenn das Preset sie
+     * entfernt), darüber die ausdrücklich eingetragenen Felder. Eine leere
+     * Angabe löscht nichts – sie überschreibt nur, was wirklich dasteht.
+     */
+    const wanted = mediabunnyTags(req.metadata, p.container === "mkv" || p.container === "webm");
+    if (Object.keys(wanted).length) {
+      options.tags = (inputTags) => ({ ...(p.metadata === "strip" ? {} : inputTags), ...wanted });
+    } else if (p.metadata === "strip") {
+      options.tags = {};
+    }
 
     conversion = await Conversion.init(options);
     if (req.signal.aborted) throw new ConversionCanceledError();
     if (!conversion.isValid) throw new ConvertError(explainDiscards(conversion, p), true);
 
-    const note = discardNotes(conversion);
+    const note = discardNotes(conversion) ?? (useStream && wantsFast ? "Speicherschonend gespeichert. Schnellstart-Metadaten am Dateianfang sind mit FFmpeg in der Desktop-App verfügbar." : undefined);
     conversion.onProgress = (fraction, processed) => {
       state.processed = processed;
       req.onProgress(Math.min(1, Math.max(0, fraction)), processed);
@@ -537,19 +599,19 @@ async function attempt(
       const buffer = (target as BufferTarget).buffer;
       size = await out.finish(buffer ? new Blob([buffer], { type: output.format.mimeType }) : undefined);
     }
-    return { status: "done", size, place: out.place, note };
+    return { status: "done", size, place: out.place, delivery: out.delivery, note: out.delivery === "download" ? "Download angefordert – bitte im Browser prüfen, ob die Datei gespeichert wurde." : note };
   } catch (e) {
     try {
-      await output.cancel();
+      await output?.cancel();
     } catch {
       /* bereits beendet */
     }
-    await out.discard();
+    await out.discard().catch(() => undefined);
     throw e;
   } finally {
     req.signal.removeEventListener("abort", onAbort);
     try {
-      input.dispose();
+      input?.dispose();
     } catch {
       /* ignorieren */
     }
@@ -564,6 +626,9 @@ async function attempt(
  * 4. Nur wenn nichts hilft, kommt ein verständlicher Grund zurück.
  */
 export async function convert(req: ConvertRequest): Promise<ConvertResult> {
+  const issue = webPresetIssue(req.preset);
+  if (issue) throw new ConvertError(issue, true);
+  if (req.signal.aborted) throw new ConversionCanceledError();
   const plans: Hw[] = req.hardware === "auto" ? ["prefer-hardware", "no-preference"] : ["prefer-software"];
   const dur = req.info.duration;
   let lastError: unknown = null;
@@ -574,7 +639,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
     try {
       return await attempt(req, { hw }, state);
     } catch (e) {
-      if (isCanceled(e) || req.signal.aborted) throw e;
+      if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
       lastError = e;
       failedAt = state.processed;
       if (e instanceof ConvertError && e.final && hw !== "prefer-hardware") throw e;
@@ -584,7 +649,9 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
   }
 
   const softHw: Hw = req.hardware === "auto" ? "no-preference" : "prefer-software";
-  if (!(lastError instanceof ConvertError)) {
+  // Only evidence of damaged input permits destructive truncation. Never infer
+  // corruption from an unknown worker, network, memory or output error.
+  if (!(lastError instanceof ConvertError) && /decod|corrupt|truncat|unexpected end|end of file|timestamp/i.test(String(lastError))) {
     if (failedAt > 2) {
       const end = Math.max(1, failedAt - 1.5);
       try {
@@ -597,7 +664,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
         }
         return r;
       } catch (e) {
-        if (isCanceled(e) || req.signal.aborted) throw e;
+        if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
         lastError = e;
       }
     } else {
@@ -609,7 +676,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
         }
         return r;
       } catch (e) {
-        if (isCanceled(e) || req.signal.aborted) throw e;
+        if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
         lastError = e;
       }
     }
