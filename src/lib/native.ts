@@ -48,7 +48,7 @@ export function nativePlatform() {
         await unwrap(bridge.convert({ sourceId: req.source.id, outputId: id, preset: req.preset, adj: req.adj, metadata: req.metadata, hardware: req.hardware }));
         if (req.signal.aborted) throw new DOMException("Abgebrochen", "AbortError");
         const size = await out.finish();
-        return { status: "done", size, place: out.place, delivery: "saved" };
+        return { status: "done", size, place: out.place, delivery: "saved", outputId: id };
       } catch (e) { await out.discard().catch(() => undefined); throw e; }
       finally { unsubscribe(); req.signal.removeEventListener("abort", cancel); }
     },

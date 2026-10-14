@@ -1,4 +1,4 @@
-import { Check, Play, RotateCw, X } from "lucide-react";
+import { Check, FolderOpen, Play, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { adjustmentsSummary, estimateOutputBytes, resolveJob, routeLabel } from "../lib/job";
 import { metadataSummary } from "../lib/metadata";
@@ -73,6 +73,7 @@ export function FileRow({
   onRemove,
   onRetry,
   onOpen,
+  onReveal,
   selected = false,
   onToggleSelect,
   onClearSelection,
@@ -84,6 +85,8 @@ export function FileRow({
   onRetry: (id: string) => void;
   /** Doppelklick auf die Zeile: abspielen, drehen, zuschneiden, schneiden. */
   onOpen?: (id: string) => void;
+  /** Fertige Datei im Dateimanager zeigen – nur, wo es das gibt (Desktop). */
+  onReveal?: (item: Item) => void;
   selected?: boolean;
   onToggleSelect?: (id: string) => void;
   onClearSelection?: () => void;
@@ -129,6 +132,8 @@ export function FileRow({
 
   /* Der Hinweis steht bei jeder Zeile, die noch nicht fertig ist – er erklärt, was gleich passiert. */
   const showRoute = !!job && status !== "done" && status !== "failed" && status !== "converting";
+  /* Fertige Datei mit Weg dorthin – der Knopf braucht seine Zeile. */
+  const showReveal = status === "done" && !!item.outId && !!onReveal;
 
   return (
     <li
@@ -186,7 +191,7 @@ export function FileRow({
           {item.source.name}
         </div>
         <div className={cn("mt-[3px] line-clamp-2 text-[12px] leading-snug", tone)}>{secondary}</div>
-        {(showRoute || tags) && (
+        {(showRoute || tags || showReveal) && (
           <div className="mt-1 flex items-center gap-1.5 overflow-hidden text-[11px] text-label2">
             {showRoute && (
               <span
@@ -203,6 +208,23 @@ export function FileRow({
               </span>
             )}
             {tags && <span className="truncate">{tags}</span>}
+            {/*
+              Die Schleife schließt sich hier: Nach dem Lauf steht nicht nur eine
+              Zahl in der Zeile, sondern ein Weg zur Datei.
+            */}
+            {status === "done" && item.outId && onReveal && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onReveal(item);
+                }}
+                title="Im Ordner zeigen"
+                className="ml-auto shrink-0 rounded-full px-1.5 py-[1px] text-[11px] font-medium text-accent transition hover:bg-accent/10"
+              >
+                <FolderOpen className="mr-1 inline h-3 w-3 align-[-2px]" strokeWidth={2.4} />
+                Zeigen
+              </button>
+            )}
           </div>
         )}
       </div>

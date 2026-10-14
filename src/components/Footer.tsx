@@ -2,7 +2,7 @@ import { AlertTriangle, ChevronDown, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type { Overall } from "../hooks/useApp";
-import { formatBytes, formatDuration, formatRemaining, plural } from "../lib/format";
+import { formatBytes, formatDuration, formatRemaining, modKey, plural } from "../lib/format";
 import { estimateOutputBytes } from "../lib/job";
 import type { Item, Preset, Settings } from "../lib/types";
 import { Btn, Menu, MenuItem } from "./ui";
@@ -273,7 +273,13 @@ export function Footer({
                 Auswahl aufheben
               </Btn>
             )}
-            <Btn variant="primary" size="lg" onClick={onStart} disabled={!scope.length || checking || planning}>
+            <Btn
+              variant="primary"
+              size="lg"
+              onClick={onStart}
+              disabled={!scope.length || checking || planning}
+              title={`Konvertieren starten  ${modKey()}+↩`}
+            >
               {selected.length ? "Auswahl konvertieren" : "Konvertieren"}
             </Btn>
           </>

@@ -395,6 +395,23 @@ export function useApp() {
   }, []);
 
   /**
+   * Eine fertige Datei im Dateimanager zeigen.
+   *
+   * Der Nutzer hat auf „Konvertieren" gedrückt und wartet. Danach steht eine
+   * Zahl im Fenster, aber nicht die Datei. Dieser eine Klick schließt die
+   * Schleife – und wenn er nicht geht, sagt die App warum, statt zu schweigen.
+   */
+  const revealOutput = useCallback(async (item: Item) => {
+    const bridge = window.wandler;
+    if (!bridge || !item.outId) {
+      setNotice("Diese Datei lässt sich hier nicht im Dateimanager zeigen.");
+      return;
+    }
+    const reply = await bridge.reveal(item.outId);
+    if (!reply.ok) setNotice(reply.error);
+  }, []);
+
+  /**
    * Serie einmal ausfüllen, für alle übernehmen – aber ohne Staffel, Folge und
    * Titel: das sind genau die Felder, die sich je Datei unterscheiden.
    */
@@ -551,6 +568,7 @@ export function useApp() {
                 outSize: res.size,
                 delivery: res.delivery,
                 outPlace: res.place,
+                outId: res.outputId,
                 message: res.note ?? healed,
                 repaired: !!res.repaired || (!res.note && !!healed),
               });
@@ -621,6 +639,7 @@ export function useApp() {
     applyAdjustmentsToAll,
     setMetadata,
     applySeriesToAll,
+    revealOutput,
     dismissNotice: () => setNotice(null),
   };
 }

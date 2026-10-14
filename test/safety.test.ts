@@ -13,6 +13,7 @@ import { buildFfmpegArgs } from "../src/lib/ffmpeg";
 import { assertIpod } from "../desktop/engine-ffmpeg";
 import { createLimiter } from "../src/lib/queue";
 import { conversionSchema } from "../desktop/validation";
+import { RevealRegistry } from "../desktop/reveal-registry";
 
 const hw = { available: true, vendor: "nvidia", encoder: "NVENC", source: "ffmpeg", gpu: "" } as const;
 
@@ -120,4 +121,28 @@ test("native copy preset with edits transcodes instead of silently ignoring the 
   })[0];
   assert.equal(args[args.indexOf("-c:v") + 1], "libx264");
   assert.ok(args.some((s) => s.includes("transpose=1") && s.includes("scale=480:640")));
+});
+
+test("fertige Dateien bleiben auffindbar – aber der Speicher wächst nicht mit", () => {
+  const registry = new RevealRegistry(3);
+  /* Unbekannte Kennung: nichts zeigen, statt irgendetwas zu zeigen. */
+  assert.equal(registry.find("fremd"), undefined);
+
+  registry.remember("a", "/Ziel/A.mp4");
+  registry.remember("b", "/Ziel/B.mp4");
+  assert.equal(registry.find("a"), "/Ziel/A.mp4");
+  assert.equal(registry.find("b"), "/Ziel/B.mp4");
+
+  /* Dieselbe Kennung erneut – der neue Pfad gilt, die Kennung bleibt vorn. */
+  registry.remember("a", "/Anders/A.mp4");
+  assert.equal(registry.find("a"), "/Anders/A.mp4");
+  assert.equal(registry.size, 2);
+
+  /* Die Grenze greift und verdrängt die älteste, nicht die zuletzt gefragte. */
+  registry.remember("c", "/Ziel/C.mp4");
+  registry.remember("d", "/Ziel/D.mp4");
+  assert.equal(registry.size, 3);
+  assert.equal(registry.find("b"), undefined);
+  assert.equal(registry.find("a"), "/Anders/A.mp4");
+  assert.equal(registry.find("d"), "/Ziel/D.mp4");
 });

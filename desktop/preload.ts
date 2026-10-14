@@ -3,6 +3,7 @@ import type { NativeBridge } from "../src/lib/native-contract";
 
 // Deliberately no generic invoke, filesystem API, shell command or raw path API.
 const bridge: NativeBridge = {
+  platform: process.platform,
   init: () => ipcRenderer.invoke("engine:init"),
   hardware: () => ipcRenderer.invoke("engine:hardware"),
   pickFiles: () => ipcRenderer.invoke("files:pick"),
@@ -13,6 +14,7 @@ const bridge: NativeBridge = {
   plan: (ids, settings) => ipcRenderer.invoke("output:plan", ids, settings),
   open: (target, sourceId, ext, settings) => ipcRenderer.invoke("output:open", target, sourceId, ext, settings),
   finish: (id) => ipcRenderer.invoke("output:finish", id),
+  reveal: (id) => ipcRenderer.invoke("output:reveal", id),
   discard: (id) => ipcRenderer.invoke("output:discard", id),
   probe: (id) => ipcRenderer.invoke("engine:probe", id),
   convert: (req) => ipcRenderer.invoke("engine:convert", req),

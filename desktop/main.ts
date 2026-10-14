@@ -1,10 +1,11 @@
-import { app, BrowserWindow, dialog, ipcMain, net, protocol, session } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, net, protocol, session, shell } from "electron";
 import type { IpcMainEvent, IpcMainInvokeEvent } from "electron";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import * as fs from "node:fs/promises";
 import { z } from "zod";
 import { NativeStore } from "./fs-node";
+import { RevealRegistry } from "./reveal-registry";
 import { FfmpegEngine } from "./engine-ffmpeg";
 import { conversionSchema, id, settingsSchema } from "./validation";
 import { run } from "./process";
@@ -19,6 +20,9 @@ const renderer = pathToFileURL(path.join(__dirname, "renderer", "index.html")).h
 const engine = new FfmpegEngine(store, { install: process.resourcesPath, userData: app.getPath("userData"), home: app.getPath("home") }, (id, fraction, seconds) => {
   if (!win.isDestroyed()) win.webContents.send("engine:progress", id, fraction, seconds);
 });
+/** Fertige Dateien, die sich im Dateimanager zeigen lassen – siehe `reveal-registry.ts`. */
+const committed = new RevealRegistry();
+
 const trusted = (e: IpcMainEvent | IpcMainInvokeEvent) => !!win && e.sender === win.webContents && e.senderFrame === win.webContents.mainFrame && e.senderFrame?.url === renderer;
 const destinationFile = () => path.join(app.getPath("userData"), "destination.json");
 
@@ -53,10 +57,18 @@ function attachHandlers() {
   handle("folders:forget", async () => { store.custom = null; await fs.unlink(destinationFile()).catch(() => undefined); });
   handle("output:plan", (ids, settings) => store.plan(z.array(id).max(10000).parse(ids), settingsSchema.parse(settings)));
   handle("output:open", (target, sourceId, ext, settings) => store.open(target as Target, id.parse(sourceId), z.string().max(8).parse(ext), settingsSchema.parse(settings)));
-  handle("output:finish", (outputId) => {
+  handle("output:finish", async (outputId) => {
     const parsed = id.parse(outputId);
     if (engine.active.has(parsed)) throw new Error("Die Ausgabe wird noch geschrieben.");
-    return store.finish(parsed);
+    const file = store.getOutput(parsed).final;
+    const size = await store.finish(parsed);
+    committed.remember(parsed, file);
+    return size;
+  });
+  handle("output:reveal", (outputId) => {
+    const file = committed.find(id.parse(outputId));
+    if (!file) throw new Error("Diese Datei ist nicht mehr bekannt.");
+    shell.showItemInFolder(file);
   });
   handle("output:discard", (outputId) => {
     const parsed = id.parse(outputId);

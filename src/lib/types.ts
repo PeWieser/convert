@@ -216,6 +216,8 @@ export interface Item {
   delivery?: "saved" | "download";
   outSize?: number;
   outPlace?: string;
+  /** Kennung der fertigen Datei – damit sie sich zeigen lässt (nur Desktop). */
+  outId?: string;
   etaSeconds?: number;
 }
 

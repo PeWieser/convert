@@ -367,6 +367,14 @@ export interface ConvertResult {
   repaired?: boolean;
   note?: string;
   delivery?: "saved" | "download";
+  /**
+   * Kennung der fertigen Ausgabe im Register der Plattform.
+   *
+   * Damit lässt sich eine Datei später zeigen, ohne dass ein Pfad durch die
+   * Oberfläche wandert: Der Renderer kennt nur diese Kennung, den Pfad löst
+   * allein der Hauptprozess auf. Im Browser bleibt sie leer.
+   */
+  outputId?: string;
 }
 
 export class ConvertError extends Error {

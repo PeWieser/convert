@@ -1,4 +1,5 @@
 import { Plus } from "lucide-react";
+import { modKey } from "../lib/format";
 import type { Item, Preset } from "../lib/types";
 import { cn } from "../utils/cn";
 import { FileRow } from "./FileRow";
@@ -37,6 +38,7 @@ export function Stage({
   onRetry,
   onClear,
   onOpen,
+  onReveal,
   selected,
   onToggleSelect,
   onClearSelection,
@@ -54,6 +56,8 @@ export function Stage({
   onClear: () => void;
   /** Fehlt es, bleibt die Liste reine Anzeige – während der Konvertierung. */
   onOpen?: (id: string) => void;
+  /** Fertige Datei im Dateimanager zeigen (nur Desktop). */
+  onReveal?: (item: Item) => void;
   selected: string[];
   onToggleSelect: (id: string) => void;
   onClearSelection: () => void;
@@ -71,11 +75,11 @@ export function Stage({
           {dragging ? "Loslassen" : "Videos und Musik hierher ziehen"}
         </h1>
         <div className={cn("mt-6 flex items-center gap-2.5 transition-opacity duration-200", dragging && "opacity-0")}>
-          <Btn variant="primary" size="lg" onClick={onAddFiles}>
+          <Btn variant="primary" size="lg" onClick={onAddFiles} title={`Dateien auswählen  ${modKey()}+O`}>
             Auswählen …
           </Btn>
-          <Btn variant="plain" size="lg" onClick={onAddFolder} className="min-w-0 px-5">
-            Ordner
+          <Btn variant="plain" size="lg" onClick={onAddFolder} className="min-w-0 px-5" title={`Ganzen Ordner hinzufügen  ${modKey()}+⇧+O`}>
+            Ordner wählen …
           </Btn>
         </div>
         {/*
@@ -107,6 +111,7 @@ export function Stage({
           <FileRow key={item.id} item={item} preset={preset} locked={running} onRemove={onRemove}
             onRetry={onRetry}
             onOpen={onOpen}
+            onReveal={onReveal}
             selected={selected.includes(item.id)}
             onToggleSelect={onToggleSelect}
             onClearSelection={onClearSelection}
@@ -116,11 +121,11 @@ export function Stage({
       {!running && (
         <div className="flex h-11 items-center justify-between border-t border-sep px-2">
           <div className="flex items-center">
-            <Btn variant="plain" size="sm" onClick={onAddFiles}>
+            <Btn variant="plain" size="sm" onClick={onAddFiles} title={`Dateien auswählen  ${modKey()}+O`}>
               <Plus className="h-3.5 w-3.5" strokeWidth={2.4} />
               Hinzufügen
             </Btn>
-            <Btn variant="plain" size="sm" onClick={onAddFolder}>
+            <Btn variant="plain" size="sm" onClick={onAddFolder} title={`Ganzen Ordner hinzufügen  ${modKey()}+⇧+O`}>
               Ordner
             </Btn>
           </div>

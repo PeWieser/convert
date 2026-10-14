@@ -22,6 +22,13 @@ export interface NativeConversion {
 }
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string; canceled?: boolean };
 export interface NativeBridge {
+  /**
+   * Das Betriebssystem, auf dem dieses Fenster läuft.
+   *
+   * Damit sitzen die Fensterknöpfe dort, wo sie hingehören: auf dem Mac links,
+   * auf Windows und Linux rechts. Ein reiner Text – er geht ohne Umweg über IPC.
+   */
+  platform: string;
   init(): Promise<Reply<Capabilities>>;
   hardware(): Promise<Reply<HardwareInfo>>;
   pickFiles(): Promise<Reply<NativeSource[]>>;
@@ -32,6 +39,8 @@ export interface NativeBridge {
   plan(ids: string[], settings: Settings): Promise<Reply<[string, Target][]>>;
   open(target: Target, sourceId: string, ext: string, settings: Settings): Promise<Reply<NativeOutput | null>>;
   finish(outputId: string): Promise<Reply<number>>;
+  /** Zeigt eine fertige Datei im Dateimanager – aufgelöst aus der Kennung. */
+  reveal(outputId: string): Promise<Reply<void>>;
   discard(outputId: string): Promise<Reply<void>>;
   probe(sourceId: string): Promise<Reply<ProbeResult>>;
   convert(req: NativeConversion): Promise<Reply<void>>;

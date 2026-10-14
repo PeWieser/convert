@@ -68,3 +68,16 @@ export function extOf(name: string): string {
 export function uid(): string {
   return Math.random().toString(36).slice(2, 10) + Date.now().toString(36).slice(-4);
 }
+
+/**
+ * Die Befehlstaste, wie sie auf diesem Rechner heißt.
+ *
+ * „⌘/Strg + O" ist eine Ausrede: Jeder liest nur die Hälfte und sucht dann die
+ * Taste, die es bei ihm nicht gibt. Auf Windows und Linux steht hier deshalb
+ * „Strg", auf dem Mac „⌘".
+ */
+export function modKey(): string {
+  if (typeof window === "undefined") return "Strg";
+  const platform = window.wandler?.platform;
+  return platform && platform !== "darwin" ? "Strg" : "\u2318";
+}

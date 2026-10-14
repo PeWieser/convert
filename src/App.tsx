@@ -206,6 +206,7 @@ export default function App() {
             onRetry={app.retry}
             onClear={app.clear}
             onOpen={busy ? undefined : openInspector}
+            onReveal={(item) => void app.revealOutput(item)}
             selected={app.selected}
             onToggleSelect={app.toggleSelect}
             onClearSelection={app.clearSelection}
