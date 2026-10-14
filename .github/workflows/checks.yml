@@ -5,6 +5,7 @@ on:
   pull_request:
 permissions:
   contents: read
+  pull-requests: write
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -18,9 +19,43 @@ jobs:
       - run: npm ci
       - run: npm run typecheck && npm test && npm run build
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:ui
-      - name: FFmpeg integration
+
+      # Die beiden Prüfungen mit echtem Gegenüber laufen weiter, auch wenn eine
+      # von ihnen fällt – am Ende zählt das Gesamtergebnis, und beide Ausgaben
+      # gehören in die Pull-Anfrage.
+      - id: ui
+        continue-on-error: true
+        run: mkdir -p .tmp && npm run test:ui 2>&1 | tee .tmp/ui-test.log
+
+      - id: ffmpeg
+        continue-on-error: true
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg
-          npm run test:ffmpeg
+          npm run test:ffmpeg 2>&1 | tee .tmp/ffmpeg-test.log
+
+      # Ohne diese Ausgabe landet der Fehler nur in einer Protokolldatei, an die
+      # von außen niemand herankommt. So steht er in der Pull-Anfrage.
+      - name: Ausgaben der Integrationsprüfungen in die Pull-Anfrage schreiben
+        if: (steps.ui.outcome == 'failure' || steps.ffmpeg.outcome == 'failure') && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          {
+            echo 'Details zur fehlgeschlagenen Prüfung:'
+            for f in .tmp/ui-test.log .tmp/ffmpeg-test.log; do
+              [ -f "$f" ] || continue
+              echo
+              echo "<details><summary>$f</summary>"
+              echo
+              echo '```'
+              tail -c 55000 "$f"
+              echo '```'
+              echo '</details>'
+            done
+          } > .tmp/comment.md
+          gh pr comment ${{ github.event.pull_request.number }} --body-file .tmp/comment.md
+
+      - name: Ergebnis
+        if: steps.ui.outcome == 'failure' || steps.ffmpeg.outcome == 'failure'
+        run: exit 1
