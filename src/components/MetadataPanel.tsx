@@ -95,14 +95,14 @@ export function MetadataPanel({
             </Btn>
           )}
           {anyChange && (
-            <Btn variant="ghost" size="sm" onClick={() => onChange(original ?? {})}>
+            <Btn variant="ghost" size="sm" onClick={() => onChange(original ?? {})} title="Nur die Metadaten dieser Datei auf den Ursprung zurücksetzen">
               <RefreshCw className="h-3.5 w-3.5" strokeWidth={2.2} />
-              Alles zurücksetzen
+              Metadaten zurücksetzen
             </Btn>
           )}
           {anyChange && (
             <Btn variant="ghost" size="sm" className="ml-auto" onClick={onApplyToAll} title="Serie, Jahr, Genre, Beschreibung und Titelbild für alle Dateien übernehmen">
-              Auf alle anwenden
+              Bei allen übernehmen
             </Btn>
           )}
         </div>

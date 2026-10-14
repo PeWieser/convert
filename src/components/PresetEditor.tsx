@@ -481,7 +481,13 @@ export function PresetEditor({
   );
 
   const expertenSection = (
-    <Group title="Kodierung" footer="Diese Werte lässt man normalerweise, wie sie sind.">
+    <details className="group">
+      <summary className="flex items-center gap-2 px-4 py-2.5 text-[14px] font-medium text-label2 cursor-pointer list-none selected:bg-fill2 transition hover:bg-fill active:scale-[0.99]">
+        <span className="transition-transform duration-200 group-open:rotate-90">▶</span>
+        <span className="text-[13.5px]">Kodierung – für fast alle Dateien gleichlautend</span>
+        <span className="ml-auto text-[11px] text-label3">Drei Werte, die man normalerweise nicht berührt</span>
+      </summary>
+      <div className="px-4 pb-3 space-y-3 border-t border-sep pt-2">
       <Row label="Keyframe-Abstand" {...field("video.keyframeInterval")}>
         <NumberField
           value={v.keyframeInterval}
@@ -514,7 +520,8 @@ export function PresetEditor({
           </Row>
         </>
       )}
-    </Group>
+      </div>
+    </details>
   );
 
   const befehlSection = (

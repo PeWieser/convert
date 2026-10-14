@@ -603,8 +603,8 @@ export function FileInspector({
             Alles zurücksetzen
           </Btn>
         )}
-        {dirty && hasVideo && !metaChanged && (
-          <Btn variant="ghost" size="sm" onClick={() => onApplyToAll(draft)}>
+        {dirty && hasVideo && (
+          <Btn variant="ghost" size="sm" onClick={() => onApplyToAll(draft)} title="Drehen, Ausschnitt und Kürzen für alle Dateien übernehmen">
             Auf alle anwenden
           </Btn>
         )}
