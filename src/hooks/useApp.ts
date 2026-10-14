@@ -87,7 +87,7 @@ export function useApp() {
       .then(setCaps)
       .catch((e) => {
         setCaps({ video: [], audio: [], ready: false, subtitles: false, metadata: true, cover: false });
-        setNotice(e instanceof Error ? e.message : "Die Konvertierungs-Engine konnte nicht gestartet werden.");
+        setNotice(e instanceof Error ? e.message : "Die Konvertierung konnte nicht vorbereitet werden.");
       });
   }, []);
   useEffect(() => {

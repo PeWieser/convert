@@ -253,7 +253,7 @@ export function metadataSupport(
   const keepsTags = container !== "ts";
   const notes: string[] = [];
   if (!keepsTags) notes.push(`${label} führt keine Metadaten – die Felder werden nicht geschrieben.`);
-  else if (!engine.metadata) notes.push("Diese Engine schreibt keine Metadaten.");
+  else if (!engine.metadata) notes.push("Hier werden keine Metadaten geschrieben.");
   else if (!engine.cover && container !== "mkv" && container !== "webm")
     notes.push("Staffel- und Episodennummern schreibt im MP4-Format nur die Desktop-App.");
   const cover = engine.cover && coverFitsContainer(container);

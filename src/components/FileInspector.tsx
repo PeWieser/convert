@@ -578,7 +578,25 @@ export function FileInspector({
       </div>
 
       <footer className="flex items-center gap-2 border-t border-sep px-6 py-3">
-        {dirty && hasVideo && (
+        {/*
+          Der grobe Weg zurück stand bisher nur im Metadaten-Reiter. Auch hier
+          gilt: Wer zwanzig Werte geändert hat, will sie nicht einzeln
+          zurückholen – sondern einmal alles.
+        */}
+        {dirty && (
+          <Btn
+            variant="ghost"
+            size="sm"
+            onClick={() => {
+              setDraft(original);
+              setMeta(item.metadata ?? fileMeta ?? {});
+            }}
+            title="Alle Änderungen dieser Datei verwerfen"
+          >
+            Alles zurücksetzen
+          </Btn>
+        )}
+        {dirty && hasVideo && !metaChanged && (
           <Btn variant="ghost" size="sm" onClick={() => onApplyToAll(draft)}>
             Auf alle anwenden
           </Btn>
@@ -587,7 +605,7 @@ export function FileInspector({
           <Btn variant="secondary" onClick={onClose}>
             Abbrechen
           </Btn>
-          <Btn variant="primary" onClick={finish}>
+          <Btn variant="primary" onClick={finish} title={dirty ? "Änderungen für diese Datei übernehmen" : undefined}>
             Fertig
           </Btn>
         </div>
