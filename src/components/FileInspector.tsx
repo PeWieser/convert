@@ -115,7 +115,7 @@ export function FileInspector({
   };
 
   /* ── Wiedergabe ── */
-  const url = useMemo(() => URL.createObjectURL(item.source.file), [item.source.file]);
+  const url = useMemo(() => item.source.native?.previewUrl ?? URL.createObjectURL(item.source.file!), [item.source.file, item.source.native]);
   useEffect(() => () => URL.revokeObjectURL(url), [url]);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [playing, setPlaying] = useState(false);

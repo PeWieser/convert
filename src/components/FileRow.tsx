@@ -168,7 +168,7 @@ export function FileRow({
         <div className={cn("mt-[3px] line-clamp-2 text-[12px] leading-snug", tone)}>{secondary}</div>
       </div>
 
-      <div className="flex h-8 shrink-0 items-center gap-1.5">
+      <div className="mr-7 flex h-8 shrink-0 items-center gap-1.5">
         {adjusted && (
           <span className="rounded-full bg-accent/10 px-2 py-[3px] text-[11px] font-medium text-accent transition-opacity group-hover:opacity-0">
             {adjusted}
@@ -198,9 +198,9 @@ export function FileRow({
         Zeile berührt wird, erscheint das X – der Haken tritt dafür zurück.
         Kein Haken ohne geschriebene Datei: „Übersprungen" ist kein Erfolg.
       */}
-      {status === "done" && item.outSize !== undefined && (
+      {status === "done" && item.outSize !== undefined && item.delivery !== "download" && (
         <span
-          className="anim-fade-soft absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok opacity-100 shadow-[0_1px_2px_rgba(0,0,0,0.18)] transition-opacity duration-200 group-hover:opacity-0"
+          className={cn("file-success absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-ok shadow-[0_1px_2px_rgba(0,0,0,0.18)]", removable && "file-success-removable")}
           aria-label="Fertig"
         >
           <Check className="h-3.5 w-3.5 text-white" strokeWidth={3} />
@@ -215,7 +215,7 @@ export function FileRow({
           }}
           onDoubleClick={(e) => e.stopPropagation()}
           aria-label={`${item.source.name} entfernen`}
-          className="absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 opacity-0 transition hover:bg-fill2 hover:text-label focus-visible:opacity-100 active:scale-90 group-hover:opacity-100"
+          className="file-remove absolute right-3 top-1/2 grid h-7 w-7 -translate-y-1/2 place-items-center rounded-full bg-fill text-label2 hover:bg-fill2 hover:text-label active:scale-90"
           style={status === "failed" && !item.final ? { right: 48 } : undefined}
         >
           <X className="h-3.5 w-3.5" strokeWidth={2.4} />

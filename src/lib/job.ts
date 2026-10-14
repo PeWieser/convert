@@ -9,6 +9,7 @@
  * Reihenfolge der Bildverarbeitung, wie Mediabunny und FFmpeg sie beide wollen:
  *   Quelle → Drehung aus den Metadaten → eigene Drehung → Beschnitt → Skalierung
  */
+import { devicePreset } from "./compatibility";
 import { CONTAINERS } from "./formats";
 import { planVideoSize, willCopyAudio, willCopyVideo } from "./presets";
 import type { Adjustments, CropRect, MediaInfo, Preset } from "./types";
@@ -73,6 +74,7 @@ export interface Job {
 
 /** Rechnet aus, was mit einer Datei wirklich passieren soll. */
 export function resolveJob(preset: Preset, info: MediaInfo, adj: Adjustments = NO_ADJUSTMENTS): Job {
+  preset = devicePreset(preset);
   const hasVideo = !!info.video && CONTAINERS[preset.container].kind === "video" && preset.video.codec !== "none";
   const srcW = info.video?.width ?? 0;
   const srcH = info.video?.height ?? 0;
@@ -122,7 +124,7 @@ export function resolveJob(preset: Preset, info: MediaInfo, adj: Adjustments = N
     const baseW = crop ? crop.width : rotW;
     const baseH = crop ? crop.height : rotH;
     const planned = planVideoSize(preset.video, baseW, baseH);
-    if (planned.resized) job.out = { width: planned.width, height: planned.height, fit: planned.fit };
+    if (planned.resized || baseW % 2 || baseH % 2) job.out = { width: evenSize(planned.width), height: evenSize(planned.height), fit: planned.fit };
   }
   return job;
 }

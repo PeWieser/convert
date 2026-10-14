@@ -89,7 +89,7 @@ export function PresetGrid({
                   onEdit(p.id);
                 }}
                 onKeyDown={(e) => {
-                  if (disabled) return;
+                  if (disabled || e.target !== e.currentTarget) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onSelect(p.id);
@@ -100,7 +100,7 @@ export function PresetGrid({
                   "group relative flex cursor-pointer select-none items-center gap-3 rounded-[18px] bg-surface p-3 text-left shadow-card transition-[box-shadow,transform,opacity,background-color] duration-[300ms] ease-[cubic-bezier(0.32,0.72,0,1)] focus-visible:outline-3 focus-visible:outline-[color-mix(in_srgb,var(--accent)_60%,transparent)] focus-visible:outline-offset-2",
                   selected
                     ? "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--accent)_84%,white)_0%,var(--accent)_46%,color-mix(in_srgb,var(--accent)_82%,black)_100%)] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.3),inset_0_-1px_0_rgba(0,0,0,0.2),0_5px_16px_color-mix(in_srgb,var(--accent)_38%,transparent),0_0_0_1px_color-mix(in_srgb,var(--accent)_55%,black)]"
-                    : "hover:-translate-y-[1px] [&:active:not(:has(button:active))]:scale-[0.985]",
+                    : "hover:-translate-y-[1px]",
                   disabled && !selected && "pointer-events-none opacity-40",
                   disabled && selected && "opacity-70"
                 )}

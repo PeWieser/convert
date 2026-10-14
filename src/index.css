@@ -311,3 +311,22 @@ button:focus {
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Exactly one glyph in the shared action slot, including keyboard focus. */
+.file-remove { opacity: 0; }
+.group:hover > .file-remove, .group:focus-within > .file-remove { opacity: 1; }
+.group:hover > .file-success-removable, .group:focus-within > .file-success-removable { visibility: hidden; }
+@media (hover: none) {
+  .file-remove { opacity: 1; }
+  .file-success-removable { visibility: hidden; }
+}
+
+html.desktop, .desktop body { background: transparent; }
+.desktop .app-shell { border-radius: 10px; overflow: hidden; border: 1px solid var(--sep); }
+
+@keyframes filename-scroll {
+  0%, 15% { transform: translateX(0); }
+  85%, 100% { transform: translateX(var(--scroll-distance)); }
+}
+.filename-scroll { animation: filename-scroll linear infinite alternate; }
+@media (prefers-reduced-motion: reduce) { .filename-scroll { animation: none; } }

@@ -3,6 +3,12 @@
 Videos und Musik konvertieren — ohne Umweg, ohne Fachsprache, ohne Upload.
 Dateien reinziehen, Format wählen, konvertieren. Die Dateien bleiben auf dem Rechner.
 
+> **Aktueller Stand:** Web-App plus erste Electron-/FFmpeg-Implementierung. Windows-Installer
+> und iTunes-/iPod-Transfer sind noch nicht auf echter Zielhardware abgenommen.
+> Das iPod-Preset ist im Browser ausdrücklich gesperrt, statt unzuverlässige Dateien zu erzeugen.
+> Befunde, Änderungen, Testnachweise und priorisierte Restarbeit:
+> **[`docs/REVIEW-2026-10-13.md`](docs/REVIEW-2026-10-13.md)**.
+
 Design-Sprache: Apple Human Interface Guidelines (eigene Token in `src/index.css`,
 eigens gezeichnete Glyphen, gruppierte Listen wie in den iOS-Einstellungen).
 
@@ -14,8 +20,8 @@ eigens gezeichnete Glyphen, gruppierte Listen wie in den iOS-Einstellungen).
 |---|---|---|
 | Engine | **Mediabunny** (WebCodecs) | **FFmpeg** (NVENC · AMF · Quick Sync) |
 | Dateizugriff | File System Access API | `node:fs` über Electron-IPC |
-| Bau | `npm run build` → *eine* HTML-Datei | `desktop/` (geplant, Phase 5) |
-| Untertitel | — (die Engine kann es nicht) | beibehalten · einbrennen · entfernen |
+| Bau | `npm run build` → *eine* HTML-Datei | `desktop/` → Electron + NSIS (Plattformabnahme offen) |
+| Untertitel | — (die Engine kann es nicht) | Beibehalten nach Container; Trackauswahl/Brennen noch offen |
 
 Beide bauen auf **demselben Job-Modell** auf: `Preset + MediaInfo + Adjustments → Job`,
 und zwei Renderer machen daraus entweder `ConversionOptions` oder ein FFmpeg-Argument-Array.
@@ -50,18 +56,54 @@ Zielgröße und Kopier-Entscheidung einmal aus, beide Engines bedienen sich dara
 
 Das Ziel ergibt sich von selbst: Dateien aus einem Ordner landen im Unterordner
 „Konvertiert" neben den Originalen, einzelne Dateien im gemerkten Quellordner,
-sonst in den Downloads. Es wird nie ungefragt ein Ordner-Dialog geöffnet.
+sonst als angeforderter Browser-Download. Für mehrere Dateien ist ein explizites Ordnerziel
+nötig; blockierbare Mehrfach-Downloads werden nicht als zuverlässig verkauft. Im Desktop
+können auch einzeln gewählte Dateien neben ihren Originalen gespeichert werden.
+Es wird nie ungefragt ein Ordner-Dialog geöffnet.
 
 ---
 
 ## Entwicklung
 
 ```bash
-npm install
+npm ci
 npm run dev        # Vite auf http://localhost:5173
+npm test           # Logik + Sicherheits-/Transaktionstests
 npm run typecheck  # tsc --noEmit (strict, noUnusedLocals)
 npm run build      # eine einzelne HTML-Datei nach dist/
 ```
+
+### Windows / Electron
+
+```bash
+npm ci
+npm ci --prefix desktop
+npm run desktop:build
+npm run desktop:start
+# Auf Windows: Installer (ohne gebündeltes FFmpeg)
+npm --prefix desktop run pack
+```
+
+Der Installer sucht FFmpeg **und** FFprobe mit libx264/AAC. Nur wenn kein geeigneter
+Build vorhanden ist, lädt er den gepinnten Build aus `desktop/ffmpeg-manifest.json`,
+prüft SHA-256 und installiert ihn pro Benutzer unter `%LOCALAPPDATA%\Wandler\ffmpeg`.
+Fehlt das Netz, bietet die App den Vorgang beim Start erneut an. `FFMPEG_PATH` kann
+auf eine eigene FFmpeg-Datei verweisen; FFprobe muss daneben liegen. Unsignierte
+Testbuilds können eine SmartScreen-Warnung auslösen.
+
+### Zusätzliche Tests
+
+```bash
+npm --prefix desktop run typecheck
+npx playwright install chromium
+npm run test:ui             # Browser-Interaktionen und OPFS-Transaktion
+npm run test:ffmpeg         # benötigt ffmpeg und ffprobe im PATH
+```
+
+`FFMPEG_PATH` / `FFPROBE_PATH` erlauben alternative Test-Binaries. Große Testmedien
+werden temporär erzeugt, nicht eingecheckt. `checks.yml` führt die Prüfungen aus;
+`desktop.yml` baut den Windows-Installer als Workflow-Artefakt. Diese Workflows wurden
+hier angelegt/korrigiert, nicht bereits auf GitHub erfolgreich ausgeführt.
 
 ### Aufbau
 
@@ -85,7 +127,7 @@ src/
    ├─ order.ts              Umsortieren: slotShift · moveTo
    ├─ job.ts                Preset + Analyse + Anpassungen → ein Auftrag für beide Engines
    ├─ engine.ts             Web-Engine: initEngine · probe · convert (Mediabunny)
-   ├─ ffmpeg.ts             baut den FFmpeg-Befehl (heute Vorschau, ab Phase 5 ausgeführt)
+   ├─ ffmpeg.ts             FFmpeg-Argumente für Vorschau und native Ausführung
    ├─ fsa.ts                Picker, Drop, Zielplanung, Ausgabe
    ├─ formats.ts            Container-/Codec-Matrizen
    ├─ hardware.ts           GPU-Erkennung
@@ -103,16 +145,17 @@ gedrehte Bild, darüber das Beschnitt-Rechteck. Das Rechteck liegt dadurch immer
 egal wie schief die Aufnahme ist. Ein Beschnitt, der aufs ganze Bild fällt, und ein Schnitt,
 der die ganze Datei behält, zählen als keine Änderung — verlustfreies Kopieren bleibt erlaubt.
 
-Die Reparatur-Kaskade in `engine.ts:convert()` ist das Herzstück: GPU scheitert → Software;
-Datei bricht mittendrin → den lesbaren Teil retten und sagen, was gerettet wurde;
-Timestamps kaputt → neu aufbauen. Erst wenn nichts hilft, gibt es einen verständlichen Grund.
+Die Web-Engine kann bei belegten Decoder-/Timestampfehlern den lesbaren Teil retten und
+benennt die Kürzung. **Ausgabefehler sind keine kaputten Videos** und lösen keine Kürzung aus.
+Browser-Ordnerausgaben schreiben streamend; Faststart ohne kompletten RAM-Puffer übernimmt
+FFmpeg im Desktop. Native Jobs schreiben eine temporäre Datei und prüfen sie vor der Übernahme.
 
 ---
 
 ## Roadmap
 
-Ausführlich in [`docs/AUDIT-UND-PLAN.md`](docs/AUDIT-UND-PLAN.md) — Audit mit Befunden,
-Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
+Aktuelle Prioritäten und Abnahmegates in [`docs/REVIEW-2026-10-13.md`](docs/REVIEW-2026-10-13.md).
+Der frühere Plan in `docs/AUDIT-UND-PLAN.md` bleibt als historische Einordnung erhalten.
 
 - [x] **Phase 0** — Repo-Hygiene: Name, Version, `.gitignore`, README
 - [x] **Phase 1** — Ehrlichkeit und Sperren: Preset als Entwurf, globaler Lock,
@@ -126,15 +169,18 @@ Prioritäten und Belegen, Urteil aus Produktsicht, Zielbild und Phasenplan.
       „Einfach | Profi", fester Rahmen, `Abbrechen`/`Fertig` unten rechts, Änderungs-Haken
       pro Wert, drei Punkte mit Menü
       (Einstellungen · Duplizieren · Löschen) auf jeder Preset-Karte
-- [x] **Phase 4b (teilweise)** — Preset-Verwaltung: Umsortieren per Ziehen, Auswahl-Konvertieren.
-      Offen bleibt der Grid-Picker ab etwa sechs Einträgen
-- [ ] **Phase 5** — Windows-App: Electron + FFmpeg. Bauplan in
+- [x] **Phase 4b** — Preset-Verwaltung: Umsortieren, Auswahl-Konvertieren, dauerhaft erreichbarer Grid-Picker.
+      Touch/Autoscroll und vollständige Grid-Tastaturbedienung bleiben Nacharbeit.
+- [ ] **Phase 5** — Windows-App: Electron + FFmpeg implementiert, Windows-/Installer-Abnahme offen. Ursprünglicher Bauplan in
       [`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md), Installer-CI in
       [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml)
 
 ## Lizenzen
 
 Mediabunny (MIT) · React (MIT) · Tailwind CSS (MIT) · lucide-react (ISC).
-FFmpeg kommt in Phase 5 dazu, als GPL-Build und nur auf Nachfrage geladen: Die App ruft es
-als getrennten Prozess und bleibt dadurch selbst Lizenz-neutral. Einzelheiten in
-[`docs/DESKTOP-PLAN.md`](docs/DESKTOP-PLAN.md).
+Die Mediabunny-Encoder-Erweiterungen für AAC/MP3/FLAC verwenden MPL-2.0.
+FFmpeg wird separat als GPL-Build bezogen; Version, Prüfsumme und Bezugsquellen stehen in
+`desktop/ffmpeg-manifest.json`. Das Setup behält die mitgelieferten Lizenzdateien bei.
+Der getrennte Prozess ist **keine pauschale Aussage über Lizenzfreiheit**. Lizenz- und
+Quellenbereitstellung für eine Veröffentlichung müssen anhand des konkreten Builds und
+Vertriebsmodells geprüft werden.

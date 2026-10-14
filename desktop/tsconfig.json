@@ -1,0 +1,5 @@
+{
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "types": ["node"], "noUnusedLocals": true },
+  "include": ["*.ts", "../src/lib/native-contract.ts"]
+}

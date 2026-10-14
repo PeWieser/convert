@@ -218,7 +218,9 @@ eq("„Überspringen“ lässt belegte Namen aus", chooseName("Urlaub", "mp4", (
 eq("„Nummerieren“ zählt hoch, bis ein Name frei ist", chooseName("Urlaub", "mp4", (n) => n !== "Urlaub 3.mp4", "number", false), "Urlaub 3.mp4");
 eq("„Ersetzen“ schreibt in dieselbe Datei", chooseName("Urlaub", "mp4", () => true, "overwrite", false), "Urlaub.mp4");
 eq("„Ersetzen“ vernichtet nie die Quelle", chooseName("Urlaub", "mp4", (n) => n === "Urlaub.mp4", "overwrite", true), "Urlaub 2.mp4");
-eq("die Suche endet auch, wenn alles belegt scheint", chooseName("Urlaub", "mp4", () => true, "number", false), "Urlaub 1000.mp4");
+let exhausted = false;
+try { chooseName("Urlaub", "mp4", () => true, "number", false); } catch { exhausted = true; }
+eq("volle Namensräume werden nie überschrieben", exhausted, true);
 
 /* ── Hardware: Name ist Hinweis, Encoder-Liste ist Wahrheit ── */
 

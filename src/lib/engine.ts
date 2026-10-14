@@ -43,6 +43,8 @@ import type {
   InputVideoTrack,
   OutputFormat,
 } from "mediabunny";
+import { OutputWriteError } from "./io";
+import { webPresetIssue } from "./compatibility";
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
 import type { OutputSink } from "./platform";
@@ -194,6 +196,7 @@ async function makeThumb(track: InputVideoTrack, duration: number): Promise<stri
 
 export async function probe(source: SourceFile): Promise<ProbeResult> {
   const file = source.file;
+  if (!file) return broken("Die Quelle ist keine Browser-Datei.");
   if (file.size === 0) return broken("Die Datei ist leer (0 Bytes). Es gibt nichts, was sich retten ließe.");
   if (!engineSupported)
     return broken("Dieser Browser kann Medien nicht verarbeiten. Bitte Chrome oder Edge verwenden.");
@@ -301,7 +304,7 @@ export async function probe(source: SourceFile): Promise<ProbeResult> {
     return broken(explainUnreadable(file.name));
   } finally {
     try {
-      input.dispose();
+      input?.dispose();
     } catch {
       /* ignorieren */
     }
@@ -328,6 +331,7 @@ export interface ConvertResult {
   place: string;
   repaired?: boolean;
   note?: string;
+  delivery?: "saved" | "download";
 }
 
 export class ConvertError extends Error {
@@ -474,7 +478,7 @@ function explainError(e: unknown, req: ConvertRequest): string {
   if (/decod/.test(low))
     return "Ein Teil der Datei ist beschädigt und lässt sich nicht dekodieren. Auch die Reparatur konnte nichts retten.";
   const dur = req.info.duration ? ` (Länge ${formatDuration(req.info.duration)})` : "";
-  return `Die Datei ist beschädigt und ließ sich nicht reparieren${dur}.`;
+  return `Die Konvertierung konnte nicht abgeschlossen werden${dur}: ${msg}`;
 }
 
 async function attempt(
@@ -486,24 +490,29 @@ async function attempt(
   const out = await req.openOutput();
   if (!out) return { status: "skipped", size: 0, place: "" };
 
-  const job = resolveJob(req.preset, req.info, req.adj);
-  const input = new Input({ source: new BlobSource(req.source.file), formats: ALL_FORMATS });
-  const useStream = !!out.writable;
-  const target = useStream
-    ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
-    : new BufferTarget();
-  const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
-  const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file.size;
-  const fast: false | "in-memory" | "fragmented" = wantsFast ? fastStartMode(expected, deviceMemoryGb()) : false;
-  const output = new Output({ format: makeFormat(p, fast), target });
-
+  let input: Input | undefined;
+  let output: Output | undefined;
   let conversion: Conversion | null = null;
-  const onAbort = () => {
-    conversion?.cancel().catch(() => undefined);
-  };
+  const onAbort = () => { conversion?.cancel().catch(() => undefined); };
   req.signal.addEventListener("abort", onAbort);
 
   try {
+    if (req.signal.aborted) throw new ConversionCanceledError();
+    const job = resolveJob(req.preset, req.info, req.adj);
+    input = new Input({ source: new BlobSource(req.source.file!), formats: ALL_FORMATS });
+    const useStream = !!out.writable;
+    const target = useStream
+      ? new StreamTarget(out.writable as never, { chunked: true, chunkSize: 8 * 1024 * 1024 })
+      : new BufferTarget();
+    const wantsFast = p.fastStart && (p.container === "mp4" || p.container === "mov");
+    const expected = estimateOutputBytes(p, req.info, job.adj) || req.source.file!.size;
+    // Seekable files do not need to buffer the entire film, nor to become fMP4.
+    // Guaranteed faststart without a full RAM buffer is provided by native FFmpeg.
+    const fast = wantsFast && !useStream ? fastStartMode(expected, deviceMemoryGb()) : false;
+    if (!useStream && expected > 128_000_000) {
+      throw new OutputWriteError("Für große Dateien bitte einen Zielordner wählen; ein Browser-Download würde die gesamte Datei im RAM halten.");
+    }
+    output = new Output({ format: makeFormat(p, fast), target });
     const options: ConversionOptions = { input, output, showWarnings: false };
     const video = buildVideo(job, opts.hw, !!opts.noCopy);
     const audio = buildAudio(job);
@@ -524,7 +533,7 @@ async function attempt(
     if (req.signal.aborted) throw new ConversionCanceledError();
     if (!conversion.isValid) throw new ConvertError(explainDiscards(conversion, p), true);
 
-    const note = discardNotes(conversion);
+    const note = discardNotes(conversion) ?? (useStream && wantsFast ? "Speicherschonend gespeichert. Schnellstart-Metadaten am Dateianfang sind mit FFmpeg in der Desktop-App verfügbar." : undefined);
     conversion.onProgress = (fraction, processed) => {
       state.processed = processed;
       req.onProgress(Math.min(1, Math.max(0, fraction)), processed);
@@ -537,19 +546,19 @@ async function attempt(
       const buffer = (target as BufferTarget).buffer;
       size = await out.finish(buffer ? new Blob([buffer], { type: output.format.mimeType }) : undefined);
     }
-    return { status: "done", size, place: out.place, note };
+    return { status: "done", size, place: out.place, delivery: out.delivery, note: out.delivery === "download" ? "Download angefordert – bitte im Browser prüfen, ob die Datei gespeichert wurde." : note };
   } catch (e) {
     try {
-      await output.cancel();
+      await output?.cancel();
     } catch {
       /* bereits beendet */
     }
-    await out.discard();
+    await out.discard().catch(() => undefined);
     throw e;
   } finally {
     req.signal.removeEventListener("abort", onAbort);
     try {
-      input.dispose();
+      input?.dispose();
     } catch {
       /* ignorieren */
     }
@@ -564,6 +573,9 @@ async function attempt(
  * 4. Nur wenn nichts hilft, kommt ein verständlicher Grund zurück.
  */
 export async function convert(req: ConvertRequest): Promise<ConvertResult> {
+  const issue = webPresetIssue(req.preset);
+  if (issue) throw new ConvertError(issue, true);
+  if (req.signal.aborted) throw new ConversionCanceledError();
   const plans: Hw[] = req.hardware === "auto" ? ["prefer-hardware", "no-preference"] : ["prefer-software"];
   const dur = req.info.duration;
   let lastError: unknown = null;
@@ -574,7 +586,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
     try {
       return await attempt(req, { hw }, state);
     } catch (e) {
-      if (isCanceled(e) || req.signal.aborted) throw e;
+      if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
       lastError = e;
       failedAt = state.processed;
       if (e instanceof ConvertError && e.final && hw !== "prefer-hardware") throw e;
@@ -584,7 +596,9 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
   }
 
   const softHw: Hw = req.hardware === "auto" ? "no-preference" : "prefer-software";
-  if (!(lastError instanceof ConvertError)) {
+  // Only evidence of damaged input permits destructive truncation. Never infer
+  // corruption from an unknown worker, network, memory or output error.
+  if (!(lastError instanceof ConvertError) && /decod|corrupt|truncat|unexpected end|end of file|timestamp/i.test(String(lastError))) {
     if (failedAt > 2) {
       const end = Math.max(1, failedAt - 1.5);
       try {
@@ -597,7 +611,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
         }
         return r;
       } catch (e) {
-        if (isCanceled(e) || req.signal.aborted) throw e;
+        if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
         lastError = e;
       }
     } else {
@@ -609,7 +623,7 @@ export async function convert(req: ConvertRequest): Promise<ConvertResult> {
         }
         return r;
       } catch (e) {
-        if (isCanceled(e) || req.signal.aborted) throw e;
+        if (isCanceled(e) || req.signal.aborted || e instanceof OutputWriteError) throw e;
         lastError = e;
       }
     }

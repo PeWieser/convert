@@ -82,6 +82,7 @@ export interface Preset {
   name: string;
   icon: PresetIcon;
   builtin?: "ipod" | "mp4";
+  compatibility?: "ipod-touch-1g";
   container: ContainerId;
   video: VideoSettings;
   audio: AudioSettings;
@@ -109,7 +110,8 @@ export interface Settings {
 /** Quelle einer Datei inklusive ihrer Herkunft (für das smarte Ziel). */
 export interface SourceFile {
   id: string;
-  file: File;
+  file?: File;
+  native?: { size: number; lastModified: number; previewUrl: string };
   name: string;
   handle?: FileSystemFileHandle;
   /** Oberster hinzugefügter Ordner, falls die Datei aus einem Ordner stammt. */
@@ -166,6 +168,7 @@ export interface Item {
   final?: boolean;
   /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
   adjustments: Adjustments;
+  delivery?: "saved" | "download";
   outSize?: number;
   outPlace?: string;
   etaSeconds?: number;

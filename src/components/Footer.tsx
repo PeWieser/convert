@@ -13,17 +13,23 @@ import { Btn, Menu, MenuItem } from "./ui";
  * Aussagen, kein Platzverlust.
  */
 function CyclingNames({ names }: { names: string[] }) {
-  const [index, setIndex] = useState(0);
+  const viewport = useRef<HTMLSpanElement>(null);
+  const text = useRef<HTMLSpanElement>(null);
+  const [overflow, setOverflow] = useState(0);
+  const label = names.join("   ·   ");
   useEffect(() => {
-    if (names.length < 2) return;
-    const t = setInterval(() => setIndex((i) => i + 1), 2600);
-    return () => clearInterval(t);
-  }, [names.length]);
-  if (!names.length) return <span className="min-w-0 flex-1" />;
-  const name = names[index % names.length];
+    const measure = () => setOverflow(Math.max(0, (text.current?.scrollWidth ?? 0) - (viewport.current?.clientWidth ?? 0)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    if (viewport.current) observer.observe(viewport.current);
+    return () => observer.disconnect();
+  }, [label]);
   return (
-    <span key={name} className="anim-fade min-w-0 flex-1 truncate px-3 text-center font-medium text-label">
-      {name}
+    <span className="mx-3 min-w-0 flex-1 overflow-hidden text-center font-medium text-label" ref={viewport} title={label}>
+      <span key={label} ref={text} className={overflow > 0 ? "filename-scroll inline-block whitespace-pre" : "inline-block whitespace-pre"}
+        style={{ "--scroll-distance": `${-overflow}px`, animationDuration: `${Math.max(8, overflow / 28 + 4)}s` } as import("react").CSSProperties}>
+        {label}
+      </span>
     </span>
   );
 }
@@ -107,7 +113,7 @@ export function Footer({
   const readyBytes = scope.reduce((s, i) => s + (i.info ? estimateOutputBytes(preset, i.info, i.adjustments) : 0), 0);
 
   const custom = settings.destination === "custom" && !!settings.customDestinationName;
-  const anyFolderSource = items.some((i) => i.source.root);
+  const anyFolderSource = items.some((i) => i.source.root || i.source.native);
   const autoLabel = anyFolderSource ? "Neben den Originalen" : "Downloads";
   const label = !fsSupported ? "Downloads" : custom ? settings.customDestinationName : autoLabel;
 
@@ -116,7 +122,7 @@ export function Footer({
     status = (
       <div className="anim-fade flex min-w-0 items-center gap-2 text-[13px] text-warn" role="alert">
         <AlertTriangle className="h-4 w-4 shrink-0" />
-        <span className="truncate">{notice}</span>
+        <span className="min-w-0 flex-1 whitespace-normal">{notice}</span>
         <button
           onClick={onDismissNotice}
           aria-label="Schließen"

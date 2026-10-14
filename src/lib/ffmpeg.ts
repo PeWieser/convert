@@ -1,6 +1,8 @@
+import { devicePreset, isIpod } from "./compatibility";
+import { resolveJob } from "./job";
 import { CONTAINERS } from "./formats";
 import { NO_ADJUSTMENTS } from "./job";
-import type { Adjustments, HardwareInfo, Preset } from "./types";
+import type { Adjustments, HardwareInfo, MediaInfo, Preset, VideoCodecId } from "./types";
 
 /**
  * Baut den FFmpeg-Befehl, den die Windows-Version später ausführt.
@@ -88,14 +90,26 @@ export function buildFfmpegArgs(
   opts: {
     /** Wohin der erste Durchgang seine verworfenen Bytes schreibt: NUL oder /dev/null. */
     nullDevice?: string;
+    info?: MediaInfo;
+    passlogfile?: string;
     /** Der echte Zielpfad. Fehlt er, steht der Platzhalter der Vorschau da. */
     output?: string;
   } = {}
 ): string[][] {
+  p = devicePreset(p);
+  const job = opts.info ? resolveJob(p, opts.info, adj) : undefined;
+  if (job) {
+    adj = { ...adj, crop: job.crop, trim: job.trim };
+    const sourceCodec = ({ avc: "h264", h264: "h264", hevc: "h265", vp9: "vp9", vp8: "vp8", av1: "av1" } as Record<string, VideoCodecId>)[job.info.video?.codec ?? ""];
+    const fallbackCodec = CONTAINERS[p.container].video.find((codec) => codec === sourceCodec) ?? CONTAINERS[p.container].video[0] ?? "h264";
+    p = { ...p, video: { ...p.video, codec: job.copyVideo ? "copy" : p.video.codec === "copy" ? fallbackCodec : p.video.codec }, audio: { ...p.audio, codec: job.copyAudio ? "copy" : p.audio.codec } };
+  }
+  const subMode = adj.subtitles?.mode;
+  if (subMode && subMode !== "auto" && !isIpod(p)) p = { ...p, subtitles: subMode };
   const v = p.video;
   const a = p.audio;
   const c = CONTAINERS[p.container];
-  const useHw = hwEnabled && hw.available;
+  const useHw = hwEnabled && hw.available && !isIpod(p);
   const out = opts.output ?? `Ziel.${c.ext}`;
 
   const head: string[] = ["ffmpeg", "-hide_banner", "-y"];
@@ -144,7 +158,14 @@ export function buildFfmpegArgs(
     if (adj.crop) filters.push(`crop=${adj.crop.width}:${adj.crop.height}:${adj.crop.left}:${adj.crop.top}`);
     const mw = v.maxWidth;
     const mh = v.maxHeight;
-    if (mw || mh) {
+    if (job) {
+      if (job.out) {
+        const { width: w, height: h, fit } = job.out;
+        if (fit === "contain") filters.push(`scale=${w}:${h}:force_original_aspect_ratio=decrease:force_divisible_by=2,pad=${w}:${h}:(ow-iw)/2:(oh-ih)/2`);
+        else if (fit === "cover") filters.push(`scale=${w}:${h}:force_original_aspect_ratio=increase:force_divisible_by=2,crop=${w}:${h}`);
+        else filters.push(`scale=${w}:${h}`);
+      }
+    } else if (mw || mh) {
       if (mw && mh) {
         if (v.scaling === "fit")
           filters.push(`scale=w=${mw}:h=${mh}:force_original_aspect_ratio=decrease:force_divisible_by=2`);
@@ -158,6 +179,7 @@ export function buildFfmpegArgs(
       } else if (mh) filters.push(`scale=-2:'min(${mh},ih)'`);
       else filters.push(`scale='min(${mw},iw)':-2`);
     }
+    if (isIpod(p) || job?.out) filters.push("setsar=1");
     if (p.subtitles === "burn") filters.push(`subtitles=${filterPath(input)}`);
     if (filters.length) video.push("-vf", filters.join(","));
 
@@ -199,7 +221,8 @@ export function buildFfmpegArgs(
       amf: { fast: ["-quality", "speed"], balanced: ["-quality", "balanced"], slow: ["-quality", "quality"] },
       vt: { fast: [], balanced: [], slow: [] },
     };
-    if (v.codec !== "vp8" && v.codec !== "vp9") video.push(...speedMap[family][v.speed]);
+    if (v.codec === "av1" && family === "sw") video.push("-preset", { fast: "10", balanced: "8", slow: "6" }[v.speed]);
+    else if (v.codec !== "vp8" && v.codec !== "vp9") video.push(...speedMap[family][v.speed]);
 
     // Feinheiten
     if (v.codec === "h264" || v.codec === "h265") {
@@ -220,6 +243,7 @@ export function buildFfmpegArgs(
   else {
     audio.push("-c:a", AUDIO_ENC[a.codec]);
     if (a.codec !== "flac" && a.codec !== "pcm") audio.push("-b:a", `${a.bitrate}k`);
+    if (a.codec === "aac") audio.push("-profile:a", "aac_low");
     if (a.sampleRate) audio.push("-ar", String(a.sampleRate));
     if (a.channels) audio.push("-ac", String(a.channels));
     if (a.normalize) audio.push("-af", "loudnorm=I=-16:TP=-1.5:LRA=11");
@@ -234,10 +258,13 @@ export function buildFfmpegArgs(
   if (p.metadata === "strip") rest.push("-map_metadata", "-1", "-map_chapters", "-1");
   if (p.fastStart && (p.container === "mp4" || p.container === "mov")) rest.push("-movflags", "+faststart");
 
+  if (isIpod(p)) rest.push("-tag:v", "avc1", "-f", "ipod");
+  if (opts.passlogfile) video.push("-passlogfile", opts.passlogfile);
+
   if (secondPass) {
     /* Erster Durchgang: Statistik sammeln und das Bild verwerfen. Zweiter: schreiben. */
     return [
-      [...head, ...video, "-pass", "1", "-an", "-f", "null", opts.nullDevice ?? "NUL"],
+      [...head, ...video, "-pass", "1", "-an", "-sn", "-f", "null", opts.nullDevice ?? "NUL"],
       [...head, ...video, ...secondPass, ...audio, ...rest, out],
     ];
   }

@@ -1,3 +1,4 @@
+import { Minus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { FileInspector } from "./components/FileInspector";
 import { Footer } from "./components/Footer";
@@ -8,6 +9,7 @@ import { GearGlyph } from "./components/PresetIcon";
 import { SettingsSheet } from "./components/SettingsSheet";
 import { Stage } from "./components/Stage";
 import { useApp } from "./hooks/useApp";
+import { webPresetIssue } from "./lib/compatibility";
 import { plural } from "./lib/format";
 import { cloneAsNew, clonePreset } from "./lib/presets";
 import type { Preset } from "./lib/types";
@@ -54,6 +56,7 @@ export default function App() {
   useEffect(() => {
     if (running && app.overall) document.title = `${Math.round(app.overall.fraction * 100)} % – Wandler`;
     else document.title = "Wandler";
+    window.wandler?.progress(running && app.overall ? app.overall.fraction : -1);
   }, [running, app.overall]);
 
   /* Ablegen überall im Fenster */
@@ -146,9 +149,15 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-full flex-col bg-canvas">
+    <div className="app-shell flex h-full flex-col bg-canvas">
       <header className="drag relative z-10 grid h-[46px] shrink-0 grid-cols-[1fr_auto_1fr] items-center px-3">
-        <span />
+        <div className="no-drag flex gap-1">
+          {window.wandler && ([ ["close", "Schließen", X], ["minimize", "Minimieren", Minus], ["maximize", "Fenstergröße ändern", Square] ] as const).map(([action, label, Icon]) => (
+            <button key={action} aria-label={label} title={label} onClick={() => window.wandler?.window(action)} className="window-control grid h-7 w-7 place-items-center rounded-full text-label2 hover:bg-fill2 active:scale-95">
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
         <span className="text-[13px] font-semibold text-label2">Wandler</span>
         <div className="no-drag flex justify-end">
           <button
@@ -163,7 +172,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="min-h-0 flex-1 overflow-y-auto">
+      <main inert={app.collecting || loadingCount > 0} className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex min-h-full w-full max-w-[880px] flex-col px-4 pb-8 sm:px-8">
           <PresetBar
             presets={app.presets}
@@ -179,6 +188,11 @@ export default function App() {
             onAdd={() => setEditor({ original: cloneAsNew(app.preset, "Neues Preset"), savedId: null })}
             onOpenGrid={() => setShowGrid(true)}
           />
+          {!window.wandler && webPresetIssue(app.preset) && (
+            <p className="mb-4 rounded-xl bg-fill px-4 py-3 text-[12px] leading-relaxed text-label2" role="note">
+              {webPresetIssue(app.preset)}
+            </p>
+          )}
           <Stage
             items={items}
             preset={app.preset}
@@ -196,6 +210,8 @@ export default function App() {
           />
         </div>
       </main>
+
+      {!items.length && app.notice && <p role="alert" className="mx-6 mb-4 rounded-xl bg-fill px-4 py-3 text-sm text-warn">{app.notice}</p>}
 
       {items.length > 0 && (
         <Footer
@@ -282,17 +298,22 @@ export default function App() {
         />
       )}
 
-      {loadingCount > 0 && (
+      {(app.collecting || loadingCount > 0) && (
         <div
           className="anim-fade fixed inset-0 z-[80] grid place-items-center bg-canvas/55 backdrop-blur-[6px]"
-          role="alert"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Dateien werden gelesen"
+          tabIndex={-1}
+          ref={(el) => el?.focus()}
+          onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Tab" || e.key === "Escape") e.preventDefault(); }}
           aria-busy="true"
         >
           <div className="anim-sheet flex items-center gap-3.5 rounded-[16px] bg-surface px-5 py-4 shadow-pop">
             <span className="h-[18px] w-[18px] animate-spin rounded-full border-2 border-sep border-t-accent" />
             <div>
-              <div className="text-[14px] font-medium">{plural(loadingCount, "Datei wird", "Dateien werden")} gelesen</div>
-              <div className="mt-[2px] text-[12px] text-label2">Ohne Abbrechen – gleich geht es weiter.</div>
+              <div className="text-[14px] font-medium">{loadingCount ? `${plural(loadingCount, "Datei wird", "Dateien werden")} gelesen` : "Dateien werden eingelesen …"}</div>
+              <div className="mt-[2px] text-[12px] text-label2">Dateien analysieren und Vorschauen vorbereiten …</div>
             </div>
           </div>
         </div>

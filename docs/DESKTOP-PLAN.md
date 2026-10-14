@@ -1,3 +1,7 @@
+> **Historischer Plan.** Der aktuelle, codegeprüfte Stand samt Abnahmegrenzen steht in
+> [`REVIEW-2026-10-13.md`](REVIEW-2026-10-13.md). Frühere „erledigt“-Angaben und
+> Lizenzannahmen in diesem Dokument sind kein aktueller Release-/Testnachweis.
+
 # Wandler für Windows — Umsetzungsplan (Phase 5)
 
 Dieses Dokument ist der Bauplan, nicht die Umsetzung. Es steht hier, damit die

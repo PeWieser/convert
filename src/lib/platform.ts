@@ -45,6 +45,8 @@ export interface OutputSink {
   path?: string;
   /** Menschliche Ortsangabe für die Dateiliste, z. B. „Videos / Konvertiert". */
   place: string;
+  /** Downloads are requested, not verifiably saved by the browser. */
+  delivery?: "saved" | "download";
   /** Gibt die geschriebene Größe in Bytes zurück. */
   finish(blob?: Blob): Promise<number>;
   /** Verwirft einen angefangenen Schreibvorgang samt Restdatei. */
@@ -107,9 +109,9 @@ export function chooseName(
   /* „Ersetzen" auf die eigene Quelle würde die Quelle vernichten – dann nummerieren. */
   const number = collision === "number" || (collision === "overwrite" && sameAsSource);
   if (!number) return first;
-  /* Die Suche endet: 1000 Versuche. Danach wird der Name genommen, wie er ist –
-     lieber ein möglicher Konflikt als eine Schleife, die nie zurückkehrt. */
-  let n = 2;
-  while (n < 1000 && exists(`${base} ${n}.${ext}`)) n++;
-  return `${base} ${n}.${ext}`;
+  for (let n = 2; n <= 10000; n++) {
+    const name = `${base} ${n}.${ext}`;
+    if (!exists(name)) return name;
+  }
+  throw new Error("Kein freier Dateiname gefunden. Bitte einen anderen Zielordner wählen.");
 }
