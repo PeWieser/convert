@@ -44,6 +44,7 @@ import type {
   OutputFormat,
 } from "mediabunny";
 import { OutputWriteError } from "./io";
+import { mediabunnyTags } from "./metadata";
 import { webPresetIssue } from "./compatibility";
 import { extOf, formatDuration } from "./format";
 import { AUDIO_CODEC_LABEL, CONTAINERS, MB_AUDIO, MB_VIDEO, VIDEO_CODEC_LABEL, sourceCodecLabel } from "./formats";
@@ -52,7 +53,7 @@ import { detectHardware, withEncoderTruth } from "./hardware";
 import { estimateOutputBytes, fastStartMode, resolveJob } from "./job";
 import type { Job } from "./job";
 import type { MediaEngine } from "./platform";
-import type { Adjustments, AudioCodecId, Capabilities, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
+import type { Adjustments, AudioCodecId, Capabilities, FileMetadata, Health, MediaInfo, Preset, SourceFile, VideoCodecId } from "./types";
 
 /** `navigator.deviceMemory` kennt nur Chromium – fehlt es, rechnet die App vorsichtig. */
 function deviceMemoryGb(): number {
@@ -104,7 +105,7 @@ const LAZY_ENCODERS: { codec: "aac" | "mp3" | "flac"; label: string; register: (
 export function initEngine(): Promise<Capabilities> {
   if (!capsPromise) {
     capsPromise = (async () => {
-      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false };
+      if (!engineSupported) return { video: [], audio: [], ready: true, subtitles: false, metadata: false, cover: false };
       const missing: string[] = [];
       for (const e of LAZY_ENCODERS) {
         try {
@@ -129,6 +130,10 @@ export function initEngine(): Promise<Capabilities> {
         ready: true,
         // WebCodecs kann Untertitel weder einbrennen noch entfernen – die Desktop-App kann es.
         subtitles: false,
+        // Titel, Serie und Beschreibung schreibt die Engine in die Tags der Ausgabe.
+        metadata: true,
+        // Ein Titelbild als eigene Spur kann WebCodecs nicht anhängen.
+        cover: false,
         missing: missing.length ? missing : undefined,
       };
     })();
@@ -292,9 +297,37 @@ export async function probe(source: SourceFile): Promise<ProbeResult> {
       }
     }
 
+    /*
+     * Was in der Datei schon steht, wird mitgelesen – sonst wäre der
+     * Metadaten-Reiter ein leeres Formular und der Nutzer tippte ab, was
+     * ohnehin in der Datei steht.
+     */
+    let tags: MediaInfo["tags"];
+    try {
+      const existing = await input.getMetadataTags();
+      const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+      const raw = (existing.raw ?? {}) as Record<string, unknown>;
+      const rawText = (key: string) => text(raw[key]);
+      const read = {
+        title: text(existing.title),
+        artist: text(existing.artist),
+        genre: text(existing.genre),
+        show: rawText("tvsh") ?? text(existing.album),
+        season: rawText("tvsn"),
+        episode: rawText("tves"),
+        description: text(existing.description) ?? text(existing.comment),
+        year: existing.date ? String(existing.date.getUTCFullYear()) : undefined,
+      };
+      const clean = Object.fromEntries(Object.entries(read).filter(([, v]) => v !== undefined));
+      if (Object.keys(clean).length) tags = clean as MediaInfo["tags"];
+    } catch {
+      /* Metadaten sind eine Zugabe – ohne sie geht das Konvertieren weiter. */
+    }
+
     let thumb: string | undefined;
     if (vTrack) thumb = await makeThumb(vTrack, duration).catch(() => undefined);
 
+    info.tags = tags;
     return {
       info,
       thumb,
@@ -319,6 +352,8 @@ export interface ConvertRequest {
   preset: Preset;
   /** Was mit genau dieser Datei los ist – Drehen, Zuschneiden, Schneiden. */
   adj: Adjustments;
+  /** Was in der Ausgabe stehen soll – leer heißt: die Quelle behält ihre Angaben. */
+  metadata?: FileMetadata;
   hardware: "auto" | "off";
   openOutput: () => Promise<OutputSink | null>;
   onProgress: (fraction: number, processedSeconds: number) => void;
@@ -527,7 +562,17 @@ async function attempt(
       if (trimEnd !== undefined) options.trim.end = trimEnd;
     }
     if (opts.noCopy) options.copy = false;
-    if (p.metadata === "strip") options.tags = {};
+    /*
+     * Metadaten: Erst was schon da ist (oder nichts, wenn das Preset sie
+     * entfernt), darüber die ausdrücklich eingetragenen Felder. Eine leere
+     * Angabe löscht nichts – sie überschreibt nur, was wirklich dasteht.
+     */
+    const wanted = mediabunnyTags(req.metadata, p.container === "mkv" || p.container === "webm");
+    if (Object.keys(wanted).length) {
+      options.tags = (inputTags) => ({ ...(p.metadata === "strip" ? {} : inputTags), ...wanted });
+    } else if (p.metadata === "strip") {
+      options.tags = {};
+    }
 
     conversion = await Conversion.init(options);
     if (req.signal.aborted) throw new ConversionCanceledError();

@@ -1,6 +1,7 @@
 import { Check, Play, RotateCw, X } from "lucide-react";
 import type { ReactNode } from "react";
-import { adjustmentsSummary, estimateOutputBytes } from "../lib/job";
+import { adjustmentsSummary, estimateOutputBytes, resolveJob, routeLabel } from "../lib/job";
+import { metadataSummary } from "../lib/metadata";
 import { extOf, formatBytes, formatDuration, resolutionLabel } from "../lib/format";
 import { sourceCodecLabel } from "../lib/formats";
 import type { Item, Preset } from "../lib/types";
@@ -90,6 +91,15 @@ export function FileRow({
   const { status, info } = item;
   const removable = !locked && status !== "converting" && status !== "queued";
   const estimate = info && status === "ready" ? estimateOutputBytes(preset, info, item.adjustments) : 0;
+  /*
+   * Der Weg dieser Datei: Wird kopiert oder neu gerechnet? Bei einer TS-Datei
+   * in MP4 ist das die eigentliche Frage – sie wird hier beantwortet, bevor
+   * konvertiert wird, nicht danach.
+   */
+  const job = info ? resolveJob(preset, info, item.adjustments) : undefined;
+  const route = job ? routeLabel(job.route) : "";
+  const lossless = !!job && job.route.video !== "encode" && job.route.audio !== "encode";
+  const tags = metadataSummary(item.metadata);
   const adjusted = adjustmentsSummary(item.adjustments);
   const canOpen = !!onOpen && !!info && !locked;
   const isAudio = !!info && !info.video;
@@ -109,6 +119,9 @@ export function FileRow({
     secondary = item.health.note;
     tone = "text-warn";
   } else secondary = details(item);
+
+  /* Der Hinweis steht bei jeder Zeile, die noch nicht fertig ist – er erklärt, was gleich passiert. */
+  const showRoute = !!job && status !== "done" && status !== "failed" && status !== "converting";
 
   return (
     <li
@@ -166,6 +179,22 @@ export function FileRow({
           {item.source.name}
         </div>
         <div className={cn("mt-[3px] line-clamp-2 text-[12px] leading-snug", tone)}>{secondary}</div>
+        {(showRoute || tags) && (
+          <div className="mt-1 flex items-center gap-1.5 overflow-hidden text-[11px] text-label2">
+            {showRoute && (
+              <span
+                className={cn(
+                  "shrink-0 rounded-full px-1.5 py-[1px] font-medium transition-opacity group-hover:opacity-0",
+                  lossless ? "bg-ok/12 text-ok" : "bg-fill2 text-label3"
+                )}
+                title={job?.route.note}
+              >
+                {route}
+              </span>
+            )}
+            {tags && <span className="truncate">{tags}</span>}
+          </div>
+        )}
       </div>
 
       <div className="mr-7 flex h-8 shrink-0 items-center gap-1.5">

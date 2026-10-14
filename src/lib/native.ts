@@ -45,7 +45,7 @@ export function nativePlatform() {
       req.signal.addEventListener("abort", cancel);
       try {
         if (req.signal.aborted) throw new DOMException("Abgebrochen", "AbortError");
-        await unwrap(bridge.convert({ sourceId: req.source.id, outputId: id, preset: req.preset, adj: req.adj, hardware: req.hardware }));
+        await unwrap(bridge.convert({ sourceId: req.source.id, outputId: id, preset: req.preset, adj: req.adj, metadata: req.metadata, hardware: req.hardware }));
         if (req.signal.aborted) throw new DOMException("Abgebrochen", "AbortError");
         const size = await out.finish();
         return { status: "done", size, place: out.place, delivery: "saved" };

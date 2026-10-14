@@ -18,7 +18,7 @@ import { moveTo } from "../lib/order";
 import { BASE_AUDIO, BASE_VIDEO, cloneAsNew, defaultPresets, normalizePreset } from "../lib/presets";
 import { createLimiter } from "../lib/queue";
 import { DEFAULT_SETTINGS, usePersistent } from "../lib/storage";
-import type { Adjustments, Capabilities, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
+import type { Adjustments, Capabilities, FileMetadata, HardwareInfo, Item, Preset, Settings, SourceFile } from "../lib/types";
 
 /** Wird diese Datei durch eine Einstellungsänderung erneut fällig? */
 const willRearm = (i: Item) =>
@@ -57,7 +57,7 @@ export function useApp() {
    * eine bewusste Einschränkung, kein dauerhafter Modus.
    */
   const [selected, setSelected] = useState<string[]>([]);
-  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false });
+  const [caps, setCaps] = useState<Capabilities>({ video: [], audio: [], ready: false, subtitles: false, metadata: true, cover: false });
   /*
    * Der erste Blick kommt aus WebGL, damit das Fenster nicht leer steht. Die
    * Auskunft, auf die sich die App verlässt, liefert die Engine: im Web gefiltert
@@ -86,7 +86,7 @@ export function useApp() {
       .init()
       .then(setCaps)
       .catch((e) => {
-        setCaps({ video: [], audio: [], ready: false, subtitles: false });
+        setCaps({ video: [], audio: [], ready: false, subtitles: false, metadata: true, cover: false });
         setNotice(e instanceof Error ? e.message : "Die Konvertierungs-Engine konnte nicht gestartet werden.");
       });
   }, []);
@@ -271,7 +271,8 @@ export function useApp() {
               if (i.id !== s.id) return i;
               if (r.health.state === "broken")
                 return { ...i, status: "failed", health: r.health, message: r.health.reason, final: true, info: r.info, thumb: r.thumb };
-              return { ...i, status: "ready", health: r.health, info: r.info, thumb: r.thumb };
+              /* Was in der Datei steht, ist der Ausgangsstand des Metadaten-Reiters. */
+              return { ...i, status: "ready", health: r.health, info: r.info, thumb: r.thumb, metadata: r.info?.tags };
             });
           });
         }).catch(() => undefined);
@@ -365,6 +366,47 @@ export function useApp() {
       arr.map((i) => {
         if (i.id !== id) return i;
         const next = { ...i, adjustments: adj };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  /**
+   * Legt fest, was in der Ausgabe stehen soll. Wie bei den Anpassungen wird
+   * eine fertige Datei damit wieder fällig – sonst stünde ein Ergebnis da,
+   * das nicht mehr zeigt, was eingestellt ist.
+   */
+  const setMetadata = useCallback((id: string, metadata: FileMetadata) => {
+    setItems((arr) =>
+      arr.map((i) => {
+        if (i.id !== id) return i;
+        const next = { ...i, metadata };
+        if (i.status === "done" || i.status === "failed") {
+          next.status = "ready";
+          next.progress = 0;
+        }
+        return next;
+      })
+    );
+  }, []);
+
+  /**
+   * Serie einmal ausfüllen, für alle übernehmen – aber ohne Staffel, Folge und
+   * Titel: das sind genau die Felder, die sich je Datei unterscheiden.
+   */
+  const applySeriesToAll = useCallback((metadata: FileMetadata) => {
+    const shared: FileMetadata = { ...metadata };
+    delete shared.season;
+    delete shared.episode;
+    delete shared.episodeTitle;
+    setItems((arr) =>
+      arr.map((i) => {
+        if (!i.info || i.info.video === undefined && i.info.audio === undefined) return i;
+        const next = { ...i, metadata: { ...shared } };
         if (i.status === "done" || i.status === "failed") {
           next.status = "ready";
           next.progress = 0;
@@ -479,6 +521,7 @@ export function useApp() {
               info,
               preset: current,
               adj: item.adjustments,
+              metadata: item.metadata,
               hardware: settings.hardware,
               signal: ac.signal,
               openOutput: () => fs.open(target, item.source, ext, settings),
@@ -576,6 +619,8 @@ export function useApp() {
     stop,
     setAdjustments,
     applyAdjustmentsToAll,
+    setMetadata,
+    applySeriesToAll,
     dismissNotice: () => setNotice(null),
   };
 }

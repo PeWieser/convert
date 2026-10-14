@@ -10,6 +10,8 @@ export const DEFAULT_SETTINGS: Settings = {
   destination: "auto",
   customDestinationName: "",
   selectedPresetId: "preset-mp4",
+  tmdbKey: "",
+  tmdbLanguage: "de",
 };
 
 export function loadJSON<T>(key: string, fallback: T): T {

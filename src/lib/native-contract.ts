@@ -1,4 +1,4 @@
-import type { Adjustments, Capabilities, HardwareInfo, Preset, Settings } from "./types";
+import type { Adjustments, Capabilities, FileMetadata, HardwareInfo, Preset, Settings } from "./types";
 import type { ProbeResult } from "./engine";
 import type { Target } from "./platform";
 
@@ -11,7 +11,15 @@ export interface NativeSource {
   previewUrl: string;
 }
 export interface NativeOutput { id: string; place: string }
-export interface NativeConversion { sourceId: string; outputId: string; preset: Preset; adj: Adjustments; hardware: Settings["hardware"] }
+export interface NativeConversion {
+  sourceId: string;
+  outputId: string;
+  preset: Preset;
+  adj: Adjustments;
+  /** Was in der Ausgabe stehen soll. Rein serialisierbar – kein Blob, kein Handle. */
+  metadata?: FileMetadata;
+  hardware: Settings["hardware"];
+}
 export type Reply<T> = { ok: true; value: T } | { ok: false; error: string; canceled?: boolean };
 export interface NativeBridge {
   init(): Promise<Reply<Capabilities>>;

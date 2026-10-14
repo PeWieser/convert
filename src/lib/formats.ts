@@ -79,6 +79,9 @@ const SOURCE_CODEC_LABEL: Record<string, string> = {
   vp8: "VP8",
   vp9: "VP9",
   av1: "AV1",
+  mpeg2video: "MPEG-2",
+  mpeg4: "MPEG-4",
+  mjpeg: "MJPEG",
   prores: "ProRes",
   aac: "AAC",
   mp3: "MP3",
@@ -96,6 +99,47 @@ export function sourceCodecLabel(codec: string): string {
   if (!codec) return "";
   if (codec.startsWith("pcm")) return "PCM";
   return SOURCE_CODEC_LABEL[codec] ?? codec.toUpperCase();
+}
+
+/**
+ * Der Codec einer Quelldatei, übersetzt in die Sprache der Presets.
+ *
+ * Nötig für die Frage „darf das unverändert in den Zielcontainer?" – die
+ * Antwort unterscheidet sich je Container: VP9 gehört in WebM, H.264 nicht
+ * in WebM, ProRes in nichts außer MOV. Ohne diese Übersetzung müsste jeder
+ * Aufrufer die Namen der Probe-Codecs kennen.
+ */
+const SOURCE_VIDEO: Record<string, VideoCodecId> = {
+  avc: "h264",
+  h264: "h264",
+  hevc: "h265",
+  h265: "h265",
+  vp8: "vp8",
+  vp9: "vp9",
+  av1: "av1",
+  av01: "av1",
+};
+
+const SOURCE_AUDIO: Record<string, AudioCodecId> = {
+  aac: "aac",
+  mp3: "mp3",
+  opus: "opus",
+  vorbis: "vorbis",
+  flac: "flac",
+  pcm: "pcm",
+  "pcm-s16": "pcm",
+  "pcm-s16le": "pcm",
+  "pcm-s24le": "pcm",
+  "pcm-f32le": "pcm",
+};
+
+export function sourceVideoCodec(codec: string): VideoCodecId | undefined {
+  return SOURCE_VIDEO[codec];
+}
+
+export function sourceAudioCodec(codec: string): AudioCodecId | undefined {
+  if (!codec) return undefined;
+  return SOURCE_AUDIO[codec] ?? (codec.startsWith("pcm") ? "pcm" : undefined);
 }
 
 export const MEDIA_EXTENSIONS = new Set([

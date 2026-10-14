@@ -9,7 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "test": "esbuild test/job.test.ts test/safety.test.ts --bundle --platform=node --format=cjs --outdir=.tmp/tests --out-extension:.js=.cjs --log-level=error && node .tmp/tests/job.test.cjs && node --test .tmp/tests/safety.test.cjs",
+    "test": "esbuild test/job.test.ts test/safety.test.ts test/route.test.ts --bundle --platform=node --format=cjs --outdir=.tmp/tests --out-extension:.js=.cjs --log-level=error && node .tmp/tests/job.test.cjs && node --test .tmp/tests/safety.test.cjs && node --test .tmp/tests/route.test.cjs",
     "desktop:build": "npm run build && npm --prefix desktop run build",
     "desktop:start": "npm --prefix desktop start",
     "test:ui": "playwright test",

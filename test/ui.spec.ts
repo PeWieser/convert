@@ -63,7 +63,7 @@ test("grid is always reachable and file collection locks immediately, including 
   await page.addInitScript(() => {
     const ok = (value: unknown) => Promise.resolve({ ok: true, value });
     Object.defineProperty(window, "wandler", { value: {
-      init: () => ok({ video: ["h264"], audio: ["aac"], ready: true, subtitles: false }),
+      init: () => ok({ video: ["h264"], audio: ["aac"], ready: true, subtitles: false, metadata: true, cover: false }),
       hardware: () => ok({ available: false, vendor: "none", gpu: "", encoder: "", source: "ffmpeg" }),
       pickFiles: () => new Promise(() => {}),
       progress: () => {},
@@ -117,4 +117,33 @@ test("browser FSA: real stream commit, concurrent names and failed overwrite rol
     return { first, second };
   });
   expect(result).toEqual({ first: "GOOD A", second: "GOOD B" });
+});
+
+test("metadata tab edits the file's own values and says what is written", async ({ page }) => {
+  await page.goto("/test/ui.html");
+  const inspector = page.getByRole("dialog", { name: "Serie.S01E02.mkv bearbeiten" });
+  /* Der Reiter steht links neben den Bildwerkzeugen. */
+  await inspector.getByRole("button", { name: "Metadaten" }).click();
+
+  /* Der vorhandene Titel steht im Formular – ein Bearbeiten, kein leeres Blatt. */
+  const title = inspector.getByLabel("Titel", { exact: true });
+  await expect(title).toHaveValue("Der Anfang");
+
+  /* Ohne TMDB-Schlüssel erklärt das Fenster den Weg, statt leer zu bleiben. */
+  await inspector.getByRole("button", { name: "Bei TMDB suchen" }).first().click();
+  const tmdb = page.getByRole("dialog", { name: "Bei TMDB suchen" });
+  await expect(tmdb).toBeVisible();
+  await expect(tmdb.getByText(/Für die Suche fehlt der TMDB-Schlüssel/).first()).toBeVisible();
+  await tmdb.getByRole("button", { name: "Abbrechen" }).click();
+  await expect(tmdb).toBeHidden();
+
+  /* Ein geänderter Wert trägt den Haken; ein Klick darauf stellt ihn zurück. */
+  await title.fill("Der neue Titel");
+  const revert = inspector.getByLabel("Titel zurücksetzen");
+  await expect(revert).toBeVisible();
+  await revert.click();
+  await expect(title).toHaveValue("Der Anfang");
+
+  /* Und was geschrieben wird, steht dabei: bei WebCodecs kein Titelbild. */
+  await expect(inspector.getByText(/bettet nur die Desktop-App ein/).first()).toBeVisible();
 });

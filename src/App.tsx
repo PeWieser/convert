@@ -11,6 +11,7 @@ import { Stage } from "./components/Stage";
 import { useApp } from "./hooks/useApp";
 import { webPresetIssue } from "./lib/compatibility";
 import { plural } from "./lib/format";
+import { sameMetadata } from "./lib/metadata";
 import { cloneAsNew, clonePreset } from "./lib/presets";
 import type { Preset } from "./lib/types";
 
@@ -276,15 +277,26 @@ export default function App() {
         <FileInspector
           key={inspected.id}
           item={inspected}
+          preset={app.preset}
+          caps={app.caps}
+          tmdbKey={app.settings.tmdbKey}
+          tmdbLanguage={app.settings.tmdbLanguage}
           onClose={() => setInspecting(null)}
-          onFinish={(adj) => {
+          onFinish={(adj, metadata) => {
             app.setAdjustments(inspected.id, adj);
+            /* Nur schreiben, wenn sich wirklich etwas geändert hat. */
+            if (!sameMetadata(metadata, inspected.metadata)) app.setMetadata(inspected.id, metadata);
             setInspecting(null);
           }}
           onApplyToAll={(adj) => {
             app.applyAdjustmentsToAll(adj);
             setInspecting(null);
           }}
+          onApplyMetadataToAll={(metadata) => {
+            app.applySeriesToAll(metadata);
+            setInspecting(null);
+          }}
+          onOpenSettings={() => setShowSettings(true)}
         />
       )}
 

@@ -10,16 +10,18 @@
  * Größe nach der Drehung, darin das gedrehte Bild, darüber der Beschnitt. So
  * liegt das Rechteck immer waagerecht, egal wie schief die Quelle ist.
  */
-import { Crop as CropIcon, Film, Maximize, Music, Pause, Play, RotateCcw, RotateCw, Scissors } from "lucide-react";
+import { Crop as CropIcon, Film, Maximize, Music, Pause, Play, RotateCcw, RotateCw, Scissors, Tags } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { formatDuration } from "../lib/format";
-import { clampCrop, NO_ADJUSTMENTS } from "../lib/job";
-import type { Adjustments, CropRect, Item } from "../lib/types";
+import { clampCrop, NO_ADJUSTMENTS, resolveJob, routeLabel } from "../lib/job";
+import { sameMetadata } from "../lib/metadata";
+import type { Adjustments, Capabilities, CropRect, FileMetadata, Item, Preset } from "../lib/types";
 import { cn } from "../utils/cn";
 import { Btn, RevertMark, Segmented, Sheet } from "./ui";
+import { MetadataPanel } from "./MetadataPanel";
 
-type ToolId = "play" | "rotate" | "crop" | "trim";
+type ToolId = "play" | "rotate" | "crop" | "trim" | "meta";
 type Handle = "move" | "nw" | "ne" | "sw" | "se";
 
 const RATIOS: { id: string; label: string; value: number | null }[] = [
@@ -62,19 +64,36 @@ function dragCrop(c0: CropRect, mode: Handle, dx: number, dy: number): CropRect 
 
 export function FileInspector({
   item,
+  preset,
+  caps,
+  tmdbKey,
+  tmdbLanguage,
   onClose,
   onFinish,
   onApplyToAll,
+  onApplyMetadataToAll,
+  onOpenSettings,
 }: {
   item: Item;
+  /** Das gewählte Preset – daraus ergibt sich, was mit dem Bild und dem Ton geschieht. */
+  preset: Preset;
+  caps: Capabilities;
+  tmdbKey: string;
+  tmdbLanguage: string;
   onClose: () => void;
-  /** Übernimmt den Entwurf für diese Datei. */
-  onFinish: (adj: Adjustments) => void;
+  /** Übernimmt den Entwurf für diese Datei – Anpassungen und Metadaten. */
+  onFinish: (adj: Adjustments, metadata: FileMetadata) => void;
   /** Übernimmt den Entwurf für alle Dateien mit Bild. */
   onApplyToAll: (adj: Adjustments) => void;
+  /** Serie, Jahr und Beschreibung für alle Dateien übernehmen. */
+  onApplyMetadataToAll: (metadata: FileMetadata) => void;
+  onOpenSettings: () => void;
 }) {
   const original = item.adjustments ?? NO_ADJUSTMENTS;
   const [draft, setDraft] = useState<Adjustments>(original);
+  /* Was in der Datei steht, ist der Vergleichsstand – nicht das, was zuletzt getippt wurde. */
+  const fileMeta = item.info?.tags;
+  const [meta, setMeta] = useState<FileMetadata>(item.metadata ?? fileMeta ?? {});
   const [tool, setTool] = useState<ToolId>("play");
 
   const info = item.info;
@@ -237,6 +256,9 @@ export function FileInspector({
   };
 
   /* ── Werkzeugleiste ── */
+  /* Geändert gegenüber der Datei – derselbe Haken wie bei den Anpassungen. */
+  const metaChanged = !sameMetadata(meta, fileMeta);
+
   const tools: { id: ToolId; label: string; icon: ReactNode; changed: boolean }[] = [
     { id: "play", label: "Wiedergabe", icon: <Play className="h-4 w-4" strokeWidth={2} />, changed: false },
     ...(hasVideo
@@ -246,6 +268,7 @@ export function FileInspector({
         ] as const)
       : []),
     { id: "trim", label: "Schneiden", icon: <Scissors className="h-4 w-4" strokeWidth={2} />, changed: trimChanged },
+    { id: "meta", label: "Metadaten", icon: <Tags className="h-4 w-4" strokeWidth={2} />, changed: metaChanged },
   ];
 
   // Fällt das Bild weg (Tondatei), gibt es nichts zu drehen oder zu beschneiden.
@@ -253,7 +276,16 @@ export function FileInspector({
     if (!hasVideo && (tool === "rotate" || tool === "crop")) setTool("play");
   }, [hasVideo, tool]);
 
-  const dirty = rotateChanged || cropChanged || trimChanged;
+  const dirty = rotateChanged || cropChanged || trimChanged || metaChanged;
+
+  /*
+   * Was mit dieser Datei wirklich geschieht: Bei einer TS-Datei in MP4 ist das
+   * die Frage, ob neu gerechnet wird. Sie wird hier beantwortet – mit demselben
+   * `resolveJob`, den beide Engines benutzen.
+   */
+  const route = useMemo(() => (info ? resolveJob(preset, info, draft) : undefined), [preset, info, draft]);
+  const routeText = route ? routeLabel(route.route) : "";
+  const lossless = !!route && route.route.video !== "encode" && route.route.audio !== "encode";
 
   /**
    * Der Beschnitt wird im Werkzeug immer als Vollbildrahmen angezeigt, auch wenn
@@ -264,7 +296,7 @@ export function FileInspector({
     if (crop && (crop.width < rotW - 2 || crop.height < rotH - 2)) next.crop = crop;
     else delete next.crop;
     if (next.trim && !next.trim.start && (!next.trim.end || next.trim.end >= duration - 0.05)) delete next.trim;
-    onFinish(next);
+    onFinish(next, meta);
   };
 
   return (
@@ -285,6 +317,15 @@ export function FileInspector({
                   ? formatDuration(duration)
                   : " "}
             </div>
+            {/* Der Weg dieser Datei: kopiert oder neu gerechnet – und warum. */}
+            {info && (
+              <div className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-label2" title={route?.route.note}>
+                <span className={cn("rounded-full px-1.5 py-[1px] text-[11px] font-medium", lossless ? "bg-ok/12 text-ok" : "bg-fill2 text-label2")}>
+                  {routeText}
+                </span>
+                <span className="truncate">{route?.route.note ?? ""}</span>
+              </div>
+            )}
           </div>
         </div>
       </header>
@@ -314,7 +355,10 @@ export function FileInspector({
         </nav>
 
         <div className="flex min-w-0 flex-1 flex-col">
-          {/* ── Bühne ── */}
+          {/* ── Bühne und Laufwerk: beim Metadaten-Reiter hat das Formular den Platz. ── */}
+          {tool !== "meta" && (
+            <>
+                    {/* ── Bühne ── */}
           <div ref={stageRef} className="relative grid min-h-0 flex-1 place-items-center overflow-hidden bg-[#101013] p-7">
             {hasVideo && scale > 0 ? (
               <div
@@ -430,8 +474,27 @@ export function FileInspector({
             />
           </div>
 
+            </>
+          )}
+
           {/* ── Werkzeug ── */}
-          {tool !== "play" && (
+          {tool === "meta" && (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <MetadataPanel
+                original={fileMeta}
+                draft={meta}
+                onChange={setMeta}
+                onApplyToAll={() => onApplyMetadataToAll(meta)}
+                caps={caps}
+                preset={preset}
+                sourceName={item.source.name}
+                tmdbKey={tmdbKey}
+                tmdbLanguage={tmdbLanguage}
+                onOpenSettings={onOpenSettings}
+              />
+            </div>
+          )}
+          {tool !== "play" && tool !== "meta" && (
           <div className="shrink-0 space-y-3 border-t border-sep px-6 py-4">
             {tool === "rotate" && (
               <div className="flex items-center gap-3">

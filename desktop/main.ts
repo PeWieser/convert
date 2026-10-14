@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: {
     ...details.responseHeaders,
-    "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob: wandler-media:; connect-src 'self' wandler-media:; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'"],
+    "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://image.tmdb.org; media-src 'self' blob: wandler-media:; connect-src 'self' wandler-media: https://api.themoviedb.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'"],
   } }));
   protocol.handle("wandler-media", async (request) => {
     try {

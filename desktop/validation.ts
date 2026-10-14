@@ -7,9 +7,18 @@ export const settingsSchema = z.object({
   collision: z.enum(["number", "overwrite", "skip"]), concurrency: positive(8).int(),
   appearance: z.enum(["auto", "light", "dark"]), destination: z.enum(["auto", "custom"]),
   customDestinationName: z.string().max(1024), selectedPresetId: z.string().max(200),
+  tmdbKey: z.string().max(200), tmdbLanguage: z.string().max(10),
+});
+const short = (max: number) => z.string().max(max);
+const metadataSchema = z.object({
+  title: short(300).optional(), artist: short(300).optional(), year: short(20).optional(),
+  genre: short(200).optional(), show: short(300).optional(), season: short(10).optional(),
+  episode: short(10).optional(), episodeTitle: short(300).optional(), description: short(4000).optional(),
+  poster: z.object({ url: z.string().url().max(2048).startsWith("https://"), mime: short(60) }).optional(),
 });
 export const conversionSchema = z.object({
   sourceId: id, outputId: id, hardware: z.enum(["auto", "off"]),
+  metadata: metadataSchema.optional(),
   adj: z.object({ rotate: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]), crop: crop.optional(), trim: z.object({ start: positive(1e9).optional(), end: positive(1e9).optional() }).optional(), subtitles: z.object({ mode: z.enum(["auto", "keep", "none"]), track: positive(1000).int().optional() }).optional() }),
   preset: z.object({
     id: z.string().max(200), name: z.string().max(200), icon: z.enum(["smartphone", "film", "tv", "music", "globe", "clapperboard", "laptop", "sparkles"]),

@@ -19,10 +19,38 @@ interface Stream {
   bit_rate?: string; channels?: number; sample_rate?: string;
   side_data_list?: { rotation?: number }[]; tags?: { rotate?: string }; color_transfer?: string;
 }
-interface Probe { format?: { format_name?: string; duration?: string; size?: string }; streams?: Stream[] }
+interface Probe { format?: { format_name?: string; duration?: string; size?: string; tags?: Record<string, string> }; streams?: Stream[] }
 const number = (s: unknown) => Number.isFinite(Number(s)) ? Number(s) : 0;
 const ratio = (s?: string) => { const [a, b] = (s ?? "0/1").split("/").map(Number); return b ? a / b : 0; };
 const codec = (s?: string) => ({ h264: "avc", hevc: "hevc", pcm_s16le: "pcm-s16" })[s ?? ""] ?? s ?? "";
+
+/**
+ * Die beschreibenden Angaben einer Datei in die Sprache der App übersetzen.
+ * Gelesen wird, was gängige Werkzeuge schreiben – inklusive der Serienfelder,
+ * die iTunes und Plex verwenden.
+ */
+export function readTags(probe: Probe): MediaInfo["tags"] {
+  const t = probe.format?.tags ?? {};
+  const pick = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = Object.entries(t).find(([name]) => name.toLowerCase() === k)?.[1];
+      if (v && String(v).trim()) return String(v).trim();
+    }
+    return undefined;
+  };
+  const tags: MediaInfo["tags"] = {
+    title: pick("title"),
+    artist: pick("artist", "album_artist", "performer"),
+    year: pick("date", "year")?.match(/\d{4}/)?.[0],
+    genre: pick("genre"),
+    show: pick("show", "tvshow"),
+    season: pick("season_number"),
+    episode: pick("episode_sort", "episode_id"),
+    episodeTitle: pick("episode_name"),
+    description: pick("description", "comment"),
+  };
+  return Object.values(tags).some(Boolean) ? tags : undefined;
+}
 
 export function mediaInfo(probe: Probe): MediaInfo {
   const v = probe.streams?.find((s) => s.codec_type === "video");
@@ -35,6 +63,7 @@ export function mediaInfo(probe: Probe): MediaInfo {
     format: probe.format?.format_name ?? "", duration: number(probe.format?.duration), size: number(probe.format?.size),
     video: v ? { codec: codec(v.codec_name), width: (swapped ? v.height : displayWidth) ?? 0, height: (swapped ? displayWidth : v.height) ?? 0, rotation, fps: ratio(v.avg_frame_rate) || ratio(v.r_frame_rate), bitrate: number(v.bit_rate), hdr: ["smpte2084", "arib-std-b67"].includes(v.color_transfer ?? "") } : undefined,
     audio: a ? { codec: codec(a.codec_name), channels: a.channels ?? 0, sampleRate: number(a.sample_rate), bitrate: number(a.bit_rate) } : undefined,
+    tags: readTags(probe),
   };
 }
 
@@ -87,7 +116,7 @@ export class FfmpegEngine {
       if (encoders.includes(encoder)) audio.push(id);
     }
     // Subtitle editing/burning is not exposed until stream selection is implemented.
-    return { ready: true, video, audio, subtitles: false };
+    return { ready: true, video, audio, subtitles: false, metadata: true, cover: true };
   }
   hardware(): Promise<HardwareInfo> {
     if (!this.hardwarePromise) this.hardwarePromise = this.checkHardware().catch(() => software);
@@ -104,6 +133,21 @@ export class FfmpegEngine {
     }
     return software;
   }
+  /** Holt das Titelbild als Datei neben die vorläufige Ausgabe. Scheitert es, gibt es keins. */
+  private async coverFile(url: string | undefined, temp: string, signal: AbortSignal): Promise<string | undefined> {
+    if (!url) return undefined;
+    if (!url.startsWith("https://")) throw new Error("Das Titelbild muss von einer verschlüsselten Adresse kommen.");
+    const response = await fetch(url, { signal, redirect: "follow" });
+    if (!response.ok) throw new Error(`Das Titelbild konnte nicht geladen werden (${response.status}).`);
+    const type = response.headers.get("content-type") ?? "";
+    if (!/^image\/(jpeg|png|webp)$/.test(type)) throw new Error("Die Adresse liefert kein Bild.");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > 8_000_000) throw new Error("Das Titelbild ist zu groß (mehr als 8 MB).");
+    const file = `${temp}.cover`;
+    await fs.writeFile(file, bytes);
+    return file;
+  }
+
   private async read(file: string, signal?: AbortSignal): Promise<Probe> {
     const { ffprobe } = await this.tools();
     const { stdout } = await run(ffprobe, ["-v", "error", "-show_format", "-show_streams", "-of", "json", file], { timeout: 30000, signal });
@@ -131,8 +175,22 @@ export class FfmpegEngine {
       const preset = devicePreset(req.preset);
       const job = resolveJob(preset, info, req.adj);
       const hw = req.hardware === "auto" && !isIpod(preset) ? await this.hardware() : software;
+      /*
+       * Das Titelbild kommt aus dem Netz und wird hier zu einer Datei – FFmpeg
+       * braucht einen Pfad. Geschrieben wird sie neben die vorläufige Ausgabe
+       * und im `finally` wieder entfernt; scheitert der Download, wird ohne
+       * Bild weitergearbeitet, aber nicht ohne es zu sagen (`coverNote`).
+       */
+      const cover = await this.coverFile(req.metadata?.poster?.url, out.temp, ac.signal);
       const encode = async (useHw: boolean) => {
-        const calls = buildFfmpegArgs(preset, hw, useHw, src.path, req.adj, { output: out.temp, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null", info, passlogfile: passlog });
+        const calls = buildFfmpegArgs(preset, hw, useHw, src.path, req.adj, {
+          output: out.temp,
+          nullDevice: process.platform === "win32" ? "NUL" : "/dev/null",
+          info,
+          passlogfile: passlog,
+          metadata: req.metadata,
+          cover,
+        });
         for (const [index, call] of calls.entries()) {
           await run(tools.ffmpeg, ["-nostdin", "-progress", "pipe:1", "-nostats", ...call.slice(1)], {
             signal: ac.signal,
@@ -158,6 +216,15 @@ export class FfmpegEngine {
       if (info.audio && preset.audio.codec !== "none" && !actual.audio) throw new Error("Die Tonspur fehlt in der Ausgabe.");
       if (job.duration && actual.duration < job.duration - Math.max(1, job.duration * 0.01)) throw new Error("Die Ausgabe ist kürzer als erwartet. Sie wird nicht als vollständige Datei gespeichert.");
       if (isIpod(preset)) assertIpod(result);
+      /*
+       * Ein ausgefülltes Formular ist kein Ergebnis. Wenn ein Titel eingetragen
+       * war und die Ausgabe keinen trägt, wird das nicht als Erfolg verbucht.
+       */
+      const wantedTitle = req.metadata?.episodeTitle?.trim() || req.metadata?.title?.trim();
+      if (wantedTitle && preset.container !== "ts") {
+        const written = readTags(result)?.title;
+        if (written !== wantedTitle) throw new Error("Die Metadaten wurden nicht in die Datei geschrieben. Die Ausgabe wird nicht übernommen.");
+      }
       if (ac.signal.aborted) throw new DOMException("Abgebrochen", "AbortError");
       out.validated = true;
     } finally {
@@ -165,6 +232,7 @@ export class FfmpegEngine {
       this.pending.delete(req.outputId);
       settled();
       for (const suffix of ["-0.log", "-0.log.mbtree"]) await fs.unlink(passlog + suffix).catch(() => undefined);
+      await fs.unlink(`${out.temp}.cover`).catch(() => undefined);
     }
   }
 }
