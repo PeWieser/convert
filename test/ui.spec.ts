@@ -121,6 +121,8 @@ test("browser FSA: real stream commit, concurrent names and failed overwrite rol
 
 test("metadata tab edits the file's own values and says what is written", async ({ page }) => {
   await page.goto("/test/ui.html");
+  /* Der Inspektor ist ein Fenster über der Seite – er wird erst geöffnet. */
+  await page.getByRole("button", { name: "Inspektor öffnen" }).click();
   const inspector = page.getByRole("dialog", { name: "Serie.S01E02.mkv bearbeiten" });
   /* Der Reiter steht links neben den Bildwerkzeugen. */
   await inspector.getByRole("button", { name: "Metadaten" }).click();
