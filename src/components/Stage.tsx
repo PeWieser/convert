@@ -30,6 +30,7 @@ export function Stage({
   items,
   preset,
   outFolderName,
+  canWriteFolders,
   dragging,
   running,
   onAddFiles,
@@ -47,6 +48,8 @@ export function Stage({
   preset: Preset;
   /** Wohin die fertigen Dateien gehen – steht im leeren Zustand, nicht erst im Fuß. */
   outFolderName: string;
+  /** Darf diese Umgebung in einen Ordner schreiben, oder wird nur heruntergeladen? */
+  canWriteFolders: boolean;
   dragging: boolean;
   running: boolean;
   onAddFiles: () => void;
@@ -89,8 +92,19 @@ export function Stage({
         */}
         {!dragging && (
           <p className="mt-7 max-w-[400px] text-[12.5px] leading-relaxed text-label3">
-            Aus einem Ordner landen die fertigen Dateien im Unterordner{" "}
-            <span className="font-medium text-label2">{`„${outFolderName || "Konvertiert"}"`}</span> daneben.
+            {/*
+              Wohin die Dateien gehen, hängt davon ab, was dieser Browser darf.
+              Ein Versprechen über den Zielordner wäre hier im schlimmsten Fall
+              falsch – nämlich genau dann, wenn die Datei im Download landet.
+            */}
+            {canWriteFolders ? (
+              <>
+                Aus einem Ordner landen die fertigen Dateien im Unterordner{" "}
+                <span className="font-medium text-label2">{`„${outFolderName || "Konvertiert"}"`}</span> daneben.
+              </>
+            ) : (
+              <>Die fertigen Dateien kommen in den Download-Ordner dieses Browsers.</>
+            )}
             <br />
             Die Originale bleiben unangetastet.
           </p>

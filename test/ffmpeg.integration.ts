@@ -216,3 +216,34 @@ test("real FFmpeg: Titelbild und Metadaten landen in der MP4-Datei", async () =>
     await fs.rm(root, { recursive: true, force: true });
   }
 });
+
+test("real FFmpeg: das Standbild für die Vorschau entsteht neben der Quelle", async () => {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "wandler-preview-test-"));
+  try {
+    const video = path.join(root, "Aufnahme.mp4");
+    await run(executable, ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=640x360:rate=25", "-t", "2", "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", video]);
+    const store = new NativeStore();
+    const [src] = await store.add([video], "Konvertiert");
+    const engine = new FfmpegEngine(store, { install: root, userData: root, home: root }, () => undefined);
+
+    const result = await engine.probe(src.id);
+    assert.equal(result.health.state, "ok");
+    assert.equal(result.thumb, `wandler-media://preview/${src.id}`, "die Vorschau wird über die Kennung der Quelle angesprochen");
+
+    /* Und dahinter liegt wirklich ein Bild, kein leerer Platzhalter. */
+    const file = store.getPreview(src.id);
+    const info = JSON.parse((await run(probe, ["-v", "error", "-show_streams", "-of", "json", file])).stdout);
+    assert.equal(info.streams[0].codec_type, "video");
+    assert.ok(Number(info.streams[0].width) > 0 && Number(info.streams[0].height) > 0);
+
+    /* Eine Tondatei hat kein Bild – und bekommt deshalb keins erfunden. */
+    const audio = path.join(root, "Ton.mp3");
+    await run(executable, ["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100", "-t", "1", "-c:a", "libmp3lame", audio]);
+    const [tone] = await store.add([audio], "Konvertiert");
+    const toneResult = await engine.probe(tone.id);
+    assert.equal(toneResult.health.state, "ok");
+    assert.equal(toneResult.thumb, undefined);
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+});

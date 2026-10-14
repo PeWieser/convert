@@ -153,11 +153,36 @@ export class FfmpegEngine {
     const { stdout } = await run(ffprobe, ["-v", "error", "-show_format", "-show_streams", "-of", "json", file], { timeout: 30000, signal });
     return JSON.parse(stdout) as Probe;
   }
-  async probe(id: string): Promise<ProbeResult> {
+  /**
+   * Ein Standbild aus der Quelle holen.
+   *
+   * Der Browser kann längst nicht jedes Format abspielen – Matroska, AVI, TS
+   * und vieles mehr bleiben schwarz. FFmpeg kann es lesen, also holt es ein
+   * Bild: Damit sieht der Nutzer schon in der Liste, was er vor sich hat, und
+   * der Ausschnitt ist kein Blindflug mehr. Scheitert es, bleibt es beim
+   * Platzhalter – ein fehlendes Vorschaubild darf das Hinzufügen nie aufhalten.
+   */
+  private async preview(sourceId: string, info: MediaInfo, signal?: AbortSignal): Promise<string | undefined> {
+    if (!info.video) return undefined;
+    try {
+      const { ffmpeg } = await this.tools();
+      const src = this.store.getSource(sourceId);
+      const at = info.duration > 2 ? Math.min(10, info.duration / 3) : 0;
+      const dir = path.join(this.dirs.userData, "previews");
+      await fs.mkdir(dir, { recursive: true });
+      const file = path.join(dir, `${sourceId}.jpg`);
+      await run(ffmpeg, ["-nostdin", "-v", "error", "-y", "-ss", at.toFixed(3), "-i", src.path, "-frames:v", "1", "-vf", "scale=480:-2", "-q:v", "3", file], { timeout: 30000, signal });
+      this.store.setPreview(sourceId, file);
+      return `wandler-media://preview/${sourceId}`;
+    } catch {
+      return undefined;
+    }
+  }
+  async probe(id: string, signal?: AbortSignal): Promise<ProbeResult> {
     const src = this.store.getSource(id);
     const info = mediaInfo(await this.read(src.path));
     if (!info.audio && !info.video) return { health: { state: "broken", reason: "Keine lesbare Bild- oder Tonspur gefunden." } };
-    return { info, health: { state: "ok" } };
+    return { info, health: { state: "ok" }, thumb: await this.preview(id, info, signal) };
   }
   cancel(id: string) { this.active.get(id)?.abort(); }
   async convert(req: NativeConversion): Promise<void> {

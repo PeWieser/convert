@@ -198,6 +198,7 @@ export default function App() {
             items={items}
             preset={app.preset}
             outFolderName={app.settings.outFolderName}
+            canWriteFolders={app.fsSupported}
             dragging={dragging}
             running={busy}
             onAddFiles={() => void app.addFiles()}

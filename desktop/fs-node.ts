@@ -21,6 +21,14 @@ const missing = (e: unknown) => (e as NodeJS.ErrnoException).code === "ENOENT";
 export class NativeStore {
   sources = new Map<string, Source>();
   outputs = new Map<string, Output>();
+  /**
+   * Vorschaubilder, die FFmpeg aus einer Quelle geholt hat.
+   *
+   * Nur der Hauptprozess kennt die Pfade; der Renderer bekommt eine Adresse auf
+   * denselben Ursprung (`wandler-media://preview/<id>`). Genau wie bei Quellen
+   * gilt: Wer nicht registriert ist, ist nicht abrufbar.
+   */
+  previews = new Map<string, string>();
   private plans = new Map<string, { target: Target; dir: string }>();
   private lockedNames = new Set<string>();
   private lock = createLimiter(1);
@@ -30,6 +38,14 @@ export class NativeStore {
     const src = this.sources.get(id);
     if (!src) throw new Error("Die Quelldatei ist nicht registriert. Bitte erneut hinzufügen.");
     return src;
+  }
+  setPreview(sourceId: string, file: string): void {
+    this.previews.set(sourceId, file);
+  }
+  getPreview(id: string): string {
+    const file = this.previews.get(id);
+    if (!file) throw new Error("Für diese Datei gibt es kein Vorschaubild.");
+    return file;
   }
   getOutput(id: string): Output {
     const out = this.outputs.get(id);

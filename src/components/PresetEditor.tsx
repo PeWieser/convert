@@ -268,7 +268,7 @@ export function PresetEditor({
       </Row>
       {encodingVideo && (
         <>
-          <Row label="Ratensteuerung" {...field("video.rateControl")}>
+          <Row label="Qualität oder Bitrate" {...field("video.rateControl")}>
             <Segmented
               value={v.rateControl}
               onChange={(r) => setV({ rateControl: r })}

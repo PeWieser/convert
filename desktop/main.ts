@@ -108,17 +108,27 @@ async function ensureTools() {
 
 app.whenReady().then(async () => {
   try { const dir = JSON.parse(await fs.readFile(destinationFile(), "utf8")); if (typeof dir === "string") store.custom = dir; } catch { /* first launch */ }
+  /* Standbilder der letzten Sitzung gehören niemandem mehr – sie werden bei Bedarf neu geholt. */
+  await fs.rm(path.join(app.getPath("userData"), "previews"), { recursive: true, force: true }).catch(() => undefined);
   session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => callback({ responseHeaders: {
     ...details.responseHeaders,
-    "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://image.tmdb.org; media-src 'self' blob: wandler-media:; connect-src 'self' wandler-media: https://api.themoviedb.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'"],
+    "Content-Security-Policy": ["default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: wandler-media: https://image.tmdb.org; media-src 'self' blob: wandler-media:; connect-src 'self' wandler-media: https://api.themoviedb.org; worker-src 'self' blob:; object-src 'none'; base-uri 'none'; frame-src 'none'"],
   } }));
+  /*
+   * Zwei Dinge liegen hinter diesem Ursprung: die Quelle selbst (Wiedergabe,
+   * nur wenn der Browser das Format kann) und das Standbild, das FFmpeg daraus
+   * geholt hat. Beide werden über ihre Kennung aufgelöst – es gibt keinen Weg,
+   * über diesen Ursprung an eine Datei zu kommen, die nicht registriert ist.
+   */
   protocol.handle("wandler-media", async (request) => {
     try {
       const url = new URL(request.url);
-      if (url.hostname !== "source" || request.method !== "GET") return new Response(null, { status: 403 });
-      const src = store.getSource(id.parse(url.pathname.slice(1)));
-      return await net.fetch(pathToFileURL(src.path).href, { headers: request.headers });
+      if (request.method !== "GET") return new Response(null, { status: 403 });
+      const key = id.parse(url.pathname.slice(1));
+      if (url.hostname === "source") return await net.fetch(pathToFileURL(store.getSource(key).path).href, { headers: request.headers });
+      if (url.hostname === "preview") return await net.fetch(pathToFileURL(store.getPreview(key)).href, { headers: request.headers });
+      return new Response(null, { status: 403 });
     } catch { return new Response(null, { status: 404 }); }
   });
   win = new BrowserWindow({ icon: path.join(__dirname, "wandler.png"), width: 1024, height: 760, minWidth: 740, minHeight: 540, frame: false, transparent: true, backgroundColor: "#00000000", show: false, webPreferences: { preload: path.join(__dirname, "preload.cjs"), contextIsolation: true, sandbox: true, nodeIntegration: false, webSecurity: true } });

@@ -264,10 +264,10 @@ export function FileInspector({
     ...(hasVideo
       ? ([
           { id: "rotate", label: "Drehen", icon: <RotateCw className="h-4 w-4" strokeWidth={2} />, changed: rotateChanged },
-          { id: "crop", label: "Zuschneiden", icon: <CropIcon className="h-4 w-4" strokeWidth={2} />, changed: cropChanged },
+          { id: "crop", label: "Ausschnitt", icon: <CropIcon className="h-4 w-4" strokeWidth={2} />, changed: cropChanged },
         ] as const)
       : []),
-    { id: "trim", label: "Schneiden", icon: <Scissors className="h-4 w-4" strokeWidth={2} />, changed: trimChanged },
+    { id: "trim", label: "Kürzen", icon: <Scissors className="h-4 w-4" strokeWidth={2} />, changed: trimChanged },
     { id: "meta", label: "Metadaten", icon: <Tags className="h-4 w-4" strokeWidth={2} />, changed: metaChanged },
   ];
 
@@ -447,13 +447,20 @@ export function FileInspector({
             ) : hasVideo ? null : (
               <div className="flex flex-col items-center gap-3 text-white/60">
                 <Music className="h-9 w-9" strokeWidth={1.6} />
-                <div className="text-[13px]">Tondatei – Schneiden geht, Drehen und Zuschneiden nicht.</div>
+                <div className="text-[13px]">Tondatei – Kürzen geht, Drehen und Ausschnitt nicht.</div>
               </div>
             )}
 
             {!playable && hasVideo && (
               <div className="absolute inset-x-0 bottom-0 bg-black/55 px-4 py-2 text-center text-[12px] text-white/75">
-                Dieser Browser spielt das Format nicht ab. Zuschneiden und Schneiden bleiben deshalb blind.
+                {/*
+                  Was jetzt noch geht, steht hier – nicht, was fehlt. Seit die
+                  Desktop-App ein Standbild holt, ist der Ausschnitt auch bei
+                  Matroska und AVI kein Blindflug mehr.
+                */}
+                {item.thumb
+                  ? "Dieses Format lässt sich hier nicht abspielen – zu sehen ist ein Standbild. Der Ausschnitt geht damit, Kürzen bleibt blind."
+                  : "Dieses Format lässt sich hier nicht abspielen. Ausschnitt und Kürzen bleiben deshalb blind."}
               </div>
             )}
           </div>
