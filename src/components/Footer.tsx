@@ -232,17 +232,24 @@ export function Footer({
 
         {running ? (
           confirmStop ? (
-            <Btn
-              size="lg"
-              variant="primary"
-              className="!bg-bad"
-              onClick={() => {
-                setConfirmStop(false);
-                onStop();
-              }}
-            >
-              Wirklich stoppen
-            </Btn>
+            /* Beide Wege stehen gleichwertig da – eine Frage mit nur einer
+               Antwort ist keine Frage, sondern eine Falle. */
+            <div className="flex items-center gap-2">
+              <Btn size="lg" variant="plain" onClick={() => setConfirmStop(false)}>
+                Weiterlaufen
+              </Btn>
+              <Btn
+                size="lg"
+                variant="primary"
+                className="!bg-bad"
+                onClick={() => {
+                  setConfirmStop(false);
+                  onStop();
+                }}
+              >
+                Wirklich stoppen
+              </Btn>
+            </div>
           ) : (
             <Btn size="lg" onClick={() => setConfirmStop(true)}>
               Stoppen

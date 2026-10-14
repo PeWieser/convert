@@ -228,7 +228,38 @@ export function PresetBar({
   };
 
   return (
-    <div className="-mx-3 flex items-stretch gap-2 pr-3">
+    <div className="-mx-3">
+      {/*
+        Die Leiste hatte keinen Namen. Wer die App zum ersten Mal öffnet, sieht
+        Kärtchen, aber nicht, wofür sie stehen. Ein Wort genügt – und der Weg zu
+        einem neuen Preset gehört nach oben, nicht als anonymer Plus-Knopf ans
+        Ende der Reihe.
+      */}
+      <div className="mx-3 flex items-center justify-between">
+        <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-label2">Ausgabe</h2>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onOpenGrid}
+            disabled={disabled}
+            title={disabled ? lockReason : "Alle Presets"}
+            aria-label="Alle Presets"
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[12.5px] text-label2 transition hover:bg-fill hover:text-label disabled:pointer-events-none disabled:opacity-40"
+          >
+            <LayoutGrid className="h-3.5 w-3.5" strokeWidth={2.2} />
+            Alle
+          </button>
+          <button
+            onClick={onAdd}
+            disabled={disabled}
+            title={disabled ? lockReason : "Neues Preset"}
+            className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[12.5px] text-label2 transition hover:bg-fill hover:text-label disabled:pointer-events-none disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" strokeWidth={2.2} />
+            Neu
+          </button>
+        </div>
+      </div>
+    <div className="flex items-stretch gap-2 pr-3">
       <div className="flex min-w-0 flex-1 gap-3 overflow-x-auto px-3 pb-5 pt-3" role="radiogroup" aria-label="Format">
       {presets.map((p, index) => {
         const selected = p.id === selectedId;
@@ -403,30 +434,8 @@ export function PresetBar({
         );
       })}
 
-      <button
-        onClick={onAdd}
-        disabled={disabled}
-        title={disabled ? lockReason : "Neues Preset"}
-        aria-label="Neues Preset"
-        className="grid w-[66px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
-      >
-        <Plus className="h-5 w-5" strokeWidth={1.8} />
-      </button>
       </div>
-
-      {/*
-        Steht außerhalb der Leiste und scrollt nicht mit: Alle Presets sind immer
-        einen Klick entfernt, auch wenn die Leiste längst überläuft.
-      */}
-      <button
-        onClick={onOpenGrid}
-        disabled={disabled}
-        title={disabled ? lockReason : "Alle Presets"}
-        aria-label="Alle Presets"
-        className="mb-5 mt-3 grid w-[54px] shrink-0 place-items-center rounded-[18px] text-label2 shadow-[inset_0_0_0_1.5px_var(--sep)] transition hover:text-label hover:shadow-[inset_0_0_0_1.5px_var(--label-3)] active:scale-95 disabled:pointer-events-none disabled:opacity-30"
-      >
-        <LayoutGrid className="h-[18px] w-[18px]" strokeWidth={1.8} />
-      </button>
+    </div>
     </div>
   );
 }

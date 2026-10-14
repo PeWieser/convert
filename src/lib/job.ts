@@ -147,15 +147,22 @@ export function coverFitsContainer(id: Preset["container"]): boolean {
   return id === "mp4" || id === "mov" || id === "mkv" || id === "mp3" || id === "flac" || id === "ogg";
 }
 
-/** Ein Satz für die Oberfläche: was mit dieser Datei wirklich passiert. */
+/**
+ * Ein Satz für die Oberfläche: was mit dieser Datei wirklich passiert.
+ *
+ * Die Antwort richtet sich an den Menschen, nicht an den Code: Ihn interessiert
+ * nicht, ob ein Strom „kopiert" wird, sondern ob sein Video dabei Qualität
+ * verliert. „Verlustfrei umgepackt" war die Beschreibung des Verfahrens –
+ * „Ohne Qualitätsverlust" ist die Auskunft, die er gesucht hat.
+ */
 export function routeLabel(route: JobRoute): string {
   const { video, audio } = route;
-  if (video === "copy" && (audio === "copy" || audio === "none")) return "Wird verlustfrei umgepackt";
-  if (video === "copy" && audio === "encode") return "Bild unverändert, Ton neu kodiert";
-  if (video === "encode" && audio === "copy") return "Bild neu kodiert, Ton unverändert";
-  if (video === "none" && audio === "encode") return "Ton wird neu kodiert";
-  if (video === "none" && audio === "copy") return "Ton wird unverändert übernommen";
-  return "Wird neu kodiert";
+  if (video === "copy" && (audio === "copy" || audio === "none")) return "Ohne Qualitätsverlust";
+  if (video === "copy" && audio === "encode") return "Nur der Ton wird gerechnet";
+  if (video === "encode" && audio === "copy") return "Nur das Bild wird gerechnet";
+  if (video === "none" && audio === "encode") return "Ton wird gerechnet";
+  if (video === "none" && audio === "copy") return "Ton bleibt, wie er ist";
+  return "Wird neu gerechnet";
 }
 
 /** Bleibt der Inhalt unangetastet? Nur dann darf die App „verlustfrei" sagen. */

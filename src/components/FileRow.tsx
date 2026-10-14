@@ -99,6 +99,13 @@ export function FileRow({
   const job = info ? resolveJob(preset, info, item.adjustments) : undefined;
   const route = job ? routeLabel(job.route) : "";
   const lossless = !!job && job.route.video !== "encode" && job.route.audio !== "encode";
+  /*
+   * Die gute Nachricht ist keine Nachricht: „Ohne Qualitätsverlust" steht bei
+   * jeder Datei, die einfach durchläuft, und macht die eine Datei unsichtbar,
+   * bei der wirklich gerechnet wird. Deshalb steht sie hier ruhig und grau,
+   * und nur der Eingriff steht da, wo das Auge hängen bleibt.
+   */
+  const routeNeutral = route === "Ohne Qualitätsverlust" || route === "Ton bleibt, wie er ist";
   const tags = metadataSummary(item.metadata);
   const adjusted = adjustmentsSummary(item.adjustments);
   const canOpen = !!onOpen && !!info && !locked;
@@ -184,8 +191,11 @@ export function FileRow({
             {showRoute && (
               <span
                 className={cn(
-                  "shrink-0 rounded-full px-1.5 py-[1px] font-medium transition-opacity group-hover:opacity-0",
-                  lossless ? "bg-ok/12 text-ok" : "bg-fill2 text-label3"
+                  "shrink-0 whitespace-nowrap transition-opacity group-hover:opacity-0",
+                  routeNeutral
+                    ? "text-label3"
+                    : "rounded-full bg-warn/12 px-1.5 py-[1px] font-medium text-warn",
+                  lossless && !routeNeutral && "bg-ok/12 text-ok"
                 )}
                 title={job?.route.note}
               >

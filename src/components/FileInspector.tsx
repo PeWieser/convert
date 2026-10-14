@@ -320,7 +320,15 @@ export function FileInspector({
             {/* Der Weg dieser Datei: kopiert oder neu gerechnet – und warum. */}
             {info && (
               <div className="mt-1 flex items-center gap-1.5 truncate text-[12px] text-label2" title={route?.route.note}>
-                <span className={cn("rounded-full px-1.5 py-[1px] text-[11px] font-medium", lossless ? "bg-ok/12 text-ok" : "bg-fill2 text-label2")}>
+                <span
+                  className={cn(
+                    "shrink-0 whitespace-nowrap text-[11px]",
+                    routeText === "Ohne Qualitätsverlust" || routeText === "Ton bleibt, wie er ist"
+                      ? "text-label3"
+                      : "rounded-full bg-warn/12 px-1.5 py-[1px] font-medium text-warn",
+                    lossless && routeText !== "Ohne Qualitätsverlust" && routeText !== "Ton bleibt, wie er ist" && "bg-ok/12 text-ok"
+                  )}
+                >
                   {routeText}
                 </span>
                 <span className="truncate">{route?.route.note ?? ""}</span>

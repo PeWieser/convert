@@ -54,9 +54,10 @@ Zielgröße und Kopier-Entscheidung einmal aus, beide Engines bedienen sich dara
   Was ein Zielformat wirklich schreiben kann, steht unter dem Formular — MPEG-TS führt
   keine Metadaten, und im Browser bleiben Seriennummern im MP4 dem Desktop vorbehalten.
 - **Der Weg jeder Datei steht vorher da.** In der Zeile und im Kopf des Inspektors steht,
-  was gleich geschieht: *Wird verlustfrei umgepackt* (H.264/AAC aus dem TS nach MP4 —
-  Bild und Ton bleiben Bit für Bit), *Bild unverändert, Ton neu kodiert* oder
-  *Wird neu kodiert* (MPEG-2 aus dem TS). Die Begründung steht als Tooltip daneben.
+  was gleich geschieht: *Ohne Qualitätsverlust* (H.264/AAC aus dem TS nach MP4 — Bild und
+  Ton bleiben Bit für Bit), *Nur der Ton wird gerechnet* oder *Wird neu gerechnet*
+  (MPEG-2 aus dem TS). Die gute Nachricht steht ruhig und grau, der Eingriff farbig;
+  die Begründung steht als Tooltip daneben.
 - **Während der Konvertierung ist alles gesperrt** — mit sichtbarem Grund.
   Nichts lässt sich ändern, was ohnehin nicht wirkt. Ein geöffneter Inspektor schließt sich.
 - `⌘/Strg + O` Dateien · `⇧⌘/Strg + O` Ordner · `⌘/Strg + ↩` konvertieren ·

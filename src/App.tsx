@@ -197,6 +197,7 @@ export default function App() {
           <Stage
             items={items}
             preset={app.preset}
+            outFolderName={app.settings.outFolderName}
             dragging={dragging}
             running={busy}
             onAddFiles={() => void app.addFiles()}

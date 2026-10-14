@@ -45,7 +45,7 @@ test("TS mit H.264 und AAC nach MP4: nur der Container wechselt", () => {
   assert.equal(job.copyVideo, true);
   assert.equal(job.copyAudio, true);
   assert.deepEqual(job.route, { video: "copy", audio: "copy", note: undefined });
-  assert.equal(routeLabel(job.route), "Wird verlustfrei umgepackt");
+  assert.equal(routeLabel(job.route), "Ohne Qualitätsverlust");
   assert.equal(routeIsLossless(job.route), true);
 
   const args = buildFfmpegArgs(mp4Preset(), hw, false, "Kamera.ts", undefined, { info: tsH264 })[0];
@@ -58,7 +58,7 @@ test("TS mit H.264 und AC-3 nach MP4: Bild bleibt, Ton wird gerechnet", () => {
   const info: MediaInfo = { ...tsH264, audio: { codec: "ac3", channels: 2, sampleRate: 48000, bitrate: 384_000 } };
   const job = resolveJob(mp4Preset(), info);
   assert.deepEqual(job.route, { video: "copy", audio: "encode", note: undefined });
-  assert.equal(routeLabel(job.route), "Bild unverändert, Ton neu kodiert");
+  assert.equal(routeLabel(job.route), "Nur der Ton wird gerechnet");
   assert.equal(routeIsLossless(job.route), false);
 
   const args = buildFfmpegArgs(mp4Preset(), hw, false, "Kamera.ts", undefined, { info })[0];
@@ -70,7 +70,7 @@ test("TS mit H.264 und AC-3 nach MP4: Bild bleibt, Ton wird gerechnet", () => {
 test("TS mit MPEG-2 nach MP4: das Bild wird wirklich neu gerechnet", () => {
   const job = resolveJob(mp4Preset(), tsMpeg2);
   assert.deepEqual(job.route, { video: "encode", audio: "encode", note: undefined });
-  assert.equal(routeLabel(job.route), "Wird neu kodiert");
+  assert.equal(routeLabel(job.route), "Wird neu gerechnet");
   const args = buildFfmpegArgs(mp4Preset(), hw, false, "Kamera.ts", undefined, { info: tsMpeg2 })[0];
   assert.ok(args.includes("libx264"));
   assert.equal(videoCodecFor(mp4Preset(), job), "h264");

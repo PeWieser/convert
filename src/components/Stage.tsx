@@ -28,6 +28,7 @@ function StackGlyph({ lifted }: { lifted: boolean }) {
 export function Stage({
   items,
   preset,
+  outFolderName,
   dragging,
   running,
   onAddFiles,
@@ -42,6 +43,8 @@ export function Stage({
 }: {
   items: Item[];
   preset: Preset;
+  /** Wohin die fertigen Dateien gehen – steht im leeren Zustand, nicht erst im Fuß. */
+  outFolderName: string;
   dragging: boolean;
   running: boolean;
   onAddFiles: () => void;
@@ -75,6 +78,19 @@ export function Stage({
             Ordner
           </Btn>
         </div>
+        {/*
+          Die beiden Sätze, die sonst als Frage im Raum stehen: Was passiert mit
+          meinen Dateien, und wo finde ich sie danach wieder? Beides beantwortet
+          die App hier, bevor der erste Klick passiert ist.
+        */}
+        {!dragging && (
+          <p className="mt-7 max-w-[400px] text-[12.5px] leading-relaxed text-label3">
+            Aus einem Ordner landen die fertigen Dateien im Unterordner{" "}
+            <span className="font-medium text-label2">{`„${outFolderName || "Konvertiert"}"`}</span> daneben.
+            <br />
+            Die Originale bleiben unangetastet.
+          </p>
+        )}
       </div>
     );
   }
